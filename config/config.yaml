@@ -1,0 +1,8 @@
+# swap_bot_py main service configuration
+node_url: "https://t1.flonscan.io"
+trade_privkey: "5J4QAKhje6en1DsmvjEW3rbBhNTMsBHH5UaEh4ubuw7ev7unRAL"
+bot_admin: "flonian"
+tokenx_mm_contract: "tokenxmm1111"
+bot_fund_account: "botfund11111"
+min_interval_seconds: 3      # Minimum interval in seconds
+max_interval_seconds: 10      # Maximum interval in seconds
