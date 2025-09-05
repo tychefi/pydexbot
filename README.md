@@ -16,7 +16,7 @@ README.md       # Project documentation
 pyproject.toml  # Poetry project configuration
 .gitignore      # Ignore file
 
-测试代码请放在 `tests/` 目录下，推荐使用 pytest。
+Place your test code in the `tests/` directory. It is recommended to use pytest.
 ```
 
 ## Quick Start

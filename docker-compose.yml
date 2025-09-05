@@ -1,0 +1,22 @@
+
+version: '3.8'
+services:
+  pydexbot:
+    container_name: pydexbot
+    image: pydexbot:latest
+    # Mount config, logs, and data directories
+    volumes:
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    tty: true
+    stdin_open: true
+    network_mode: host
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "10"

@@ -1,0 +1,11 @@
+deb http://mirrors.aliyun.com/debian trixie main contrib non-free
+deb-src http://mirrors.aliyun.com/debian trixie main contrib non-free
+
+deb http://mirrors.aliyun.com/debian-security trixie-security main contrib non-free
+deb-src http://mirrors.aliyun.com/debian-security trixie-security main contrib non-free
+
+deb http://mirrors.aliyun.com/debian trixie-updates main contrib non-free
+deb-src http://mirrors.aliyun.com/debian trixie-updates main contrib non-free
+
+deb http://mirrors.aliyun.com/debian trixie-backports main contrib non-free
+deb-src http://mirrors.aliyun.com/debian trixie-backports main contrib non-free
