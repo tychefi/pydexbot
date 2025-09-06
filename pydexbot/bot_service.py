@@ -32,7 +32,7 @@ TRADE_PERMISSION = config.get("trade_permission", "trade")
 
 MIN_INTERVAL_SECONDS = config.get("min_interval_seconds")
 MAX_INTERVAL_SECONDS = config.get("max_interval_seconds")
-VERBOSE = config.get("service", {}).get("verbose", True)
+VERBOSE = config.get("service", {}).get("verbose", False)
 
 def debug(msg):
     if VERBOSE:
@@ -43,6 +43,40 @@ def info(msg):
 
 def error(msg):
     print(f"[ERROR] {msg}")
+
+def parse_price_from_result(trx):
+    result = {}
+    if "processed" not in trx:
+        return result
+    if "action_traces" not in trx["processed"]:
+        return result
+    traces = trx["processed"]["action_traces"]
+    for trace in traces:
+        if "act" in trace and "name" in trace["act"] and trace["act"]["name"] == "exectrade":
+            if "inline_traces" not in trace or not trace["inline_traces"]:
+                continue
+            swap_inlines = trace["inline_traces"][0].get("inline_traces", [])
+            for inline in swap_inlines:
+                if "act" not in inline or "data" not in inline["act"]:
+                    continue
+                act = inline["act"]
+                act_data = act["data"]
+                if act["name"] == "transfer" and act["name"] == "transfer" and act_data["from"] == "flon.swap" and act_data["memo"].startswith("flon swap by"):
+                    result["input_contract"] = act["account"]
+                    result["bot_user"] = act_data["to"]
+                    result["input_quantity"] = act_data["quantity"]  # "0.514535 USDT"
+                    memo = act_data["memo"]  # "swap:9.53418172 FLON:flon.usdt"
+                    # parse memo: "flon swap by 0.514535 USDT:18446744073709551615"
+                    output_quantity = memo.split("by")[1].strip()  # "0.514535 USDT:18446744073709551615"
+                    output_quantity = output_quantity.split(":")[0].strip()  # "0.514535 USDT"
+                    out_amount = float(output_quantity.split()[0])
+                    in_amount = float(result["input_quantity"].split()[0])
+                    price = out_amount / in_amount if in_amount > 0 else 0
+                    price_reverted = in_amount / out_amount if out_amount > 0 else 0
+                    result["price"] = price
+                    result["price_reverted"] = price_reverted
+                    return result
+    return result
 
 def run_bot_service():
     """
@@ -67,8 +101,17 @@ def run_bot_service():
             # Submit transaction
 
             result = utils.push_action(TOKENX_MM_CONTRACT, "exectrade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
-            info(f"exectrade result: {result}")
+            debug(f"exectrade result: {result}")
             sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
+            trade_info = parse_price_from_result(result)
+            info("\n========== Trade Result ==========")
+            if trade_info:
+                max_key_len = max(len(str(k)) for k in trade_info.keys())
+                for k, v in trade_info.items():
+                    info(f"{k:<{max_key_len}} : {v}")
+            else:
+                info("ERROR: No trade executed.")
+            info("========== End Trade ==========")
             info(f"wait for: {sleep_time}s")
             time.sleep(sleep_time)
         except Exception as e:

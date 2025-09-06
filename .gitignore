@@ -70,3 +70,4 @@ __pycache__
 #docker
 .docker*
 .setup*
+.get*

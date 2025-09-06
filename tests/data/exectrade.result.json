@@ -1,0 +1,580 @@
+{
+    "transaction_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+    "processed": {
+        "id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+        "block_num": 17774760,
+        "block_time": "2025-09-06T03:30:01.000",
+        "producer_block_id": null,
+        "receipt": {
+            "status": "executed",
+            "cpu_usage_us": 528,
+            "net_usage_words": 13
+        },
+        "elapsed": 528,
+        "res_usage": {
+            "payer": "flonian",
+            "net_usage": 104,
+            "net_gas": 5200,
+            "cpu_usage": 528,
+            "cpu_gas": 5280
+        },
+        "scheduled": false,
+        "action_traces": [
+            {
+                "action_ordinal": 1,
+                "creator_action_ordinal": 0,
+                "closest_unnotified_ancestor_action_ordinal": 0,
+                "receipt": {
+                    "receiver": "tokenxmm1111",
+                    "act_digest": "5bae1397603066700f1e34ff8aa10742dd11534ae21ee13a3ecc1c91b78d524b",
+                    "global_sequence": 20397929,
+                    "recv_sequence": 9494,
+                    "auth_sequence": [
+                        [
+                            "flonian",
+                            4172
+                        ]
+                    ],
+                    "code_sequence": 30,
+                    "abi_sequence": 11
+                },
+                "receiver": "tokenxmm1111",
+                "act": {
+                    "account": "tokenxmm1111",
+                    "name": "exectrade",
+                    "authorization": [
+                        {
+                            "actor": "flonian",
+                            "permission": "trade"
+                        }
+                    ],
+                    "data": {
+                        "memo": "3317804963"
+                    },
+                    "hex_data": "0a33333137383034393633"
+                },
+                "context_free": false,
+                "elapsed": 199,
+                "console": "bot: botuser11111\nside: right\nprice: 2.058856102642822e+01\ninput_quantity: 0.514535 USDT\nmin_received_amount: 953418172\n",
+                "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                "block_num": 17774760,
+                "block_time": "2025-09-06T03:30:01.000",
+                "producer_block_id": null,
+                "account_ram_deltas": [],
+                "except": null,
+                "error_code": null,
+                "return_value_hex_data": "",
+                "inline_traces": [
+                    {
+                        "action_ordinal": 2,
+                        "creator_action_ordinal": 1,
+                        "closest_unnotified_ancestor_action_ordinal": 1,
+                        "receipt": {
+                            "receiver": "flon.mtoken",
+                            "act_digest": "67fdc8daeba9023c251e14a5e93729eeb80ae89a6afa114b34411dc393bd1c0a",
+                            "global_sequence": 20397930,
+                            "recv_sequence": 11356,
+                            "auth_sequence": [
+                                [
+                                    "botuser11111",
+                                    7675
+                                ]
+                            ],
+                            "code_sequence": 1,
+                            "abi_sequence": 1
+                        },
+                        "receiver": "flon.mtoken",
+                        "act": {
+                            "account": "flon.mtoken",
+                            "name": "transfer",
+                            "authorization": [
+                                {
+                                    "actor": "botuser11111",
+                                    "permission": "active"
+                                }
+                            ],
+                            "data": {
+                                "from": "botuser11111",
+                                "to": "flon.swap",
+                                "quantity": "0.514535 USDT",
+                                "memo": "swap:9.53418172 FLON:flon.usdt"
+                            },
+                            "hex_data": "104208e12aac333d0000a8866330695ce7d907000000000006555344540000001e737761703a392e353334313831373220464c4f4e3a666c6f6e2e75736474"
+                        },
+                        "context_free": false,
+                        "elapsed": 62,
+                        "console": "",
+                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                        "block_num": 17774760,
+                        "block_time": "2025-09-06T03:30:01.000",
+                        "producer_block_id": null,
+                        "account_ram_deltas": [],
+                        "except": null,
+                        "error_code": null,
+                        "return_value_hex_data": "",
+                        "inline_traces": [
+                            {
+                                "action_ordinal": 4,
+                                "creator_action_ordinal": 2,
+                                "closest_unnotified_ancestor_action_ordinal": 2,
+                                "receipt": {
+                                    "receiver": "botuser11111",
+                                    "act_digest": "67fdc8daeba9023c251e14a5e93729eeb80ae89a6afa114b34411dc393bd1c0a",
+                                    "global_sequence": 20397931,
+                                    "recv_sequence": 5272,
+                                    "auth_sequence": [
+                                        [
+                                            "botuser11111",
+                                            7676
+                                        ]
+                                    ],
+                                    "code_sequence": 1,
+                                    "abi_sequence": 1
+                                },
+                                "receiver": "botuser11111",
+                                "act": {
+                                    "account": "flon.mtoken",
+                                    "name": "transfer",
+                                    "authorization": [
+                                        {
+                                            "actor": "botuser11111",
+                                            "permission": "active"
+                                        }
+                                    ],
+                                    "data": {
+                                        "from": "botuser11111",
+                                        "to": "flon.swap",
+                                        "quantity": "0.514535 USDT",
+                                        "memo": "swap:9.53418172 FLON:flon.usdt"
+                                    },
+                                    "hex_data": "104208e12aac333d0000a8866330695ce7d907000000000006555344540000001e737761703a392e353334313831373220464c4f4e3a666c6f6e2e75736474"
+                                },
+                                "context_free": false,
+                                "elapsed": 3,
+                                "console": "",
+                                "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                "block_num": 17774760,
+                                "block_time": "2025-09-06T03:30:01.000",
+                                "producer_block_id": null,
+                                "account_ram_deltas": [],
+                                "except": null,
+                                "error_code": null,
+                                "return_value_hex_data": "",
+                                "inline_traces": []
+                            },
+                            {
+                                "action_ordinal": 5,
+                                "creator_action_ordinal": 2,
+                                "closest_unnotified_ancestor_action_ordinal": 2,
+                                "receipt": {
+                                    "receiver": "flon.swap",
+                                    "act_digest": "67fdc8daeba9023c251e14a5e93729eeb80ae89a6afa114b34411dc393bd1c0a",
+                                    "global_sequence": 20397932,
+                                    "recv_sequence": 18998,
+                                    "auth_sequence": [
+                                        [
+                                            "botuser11111",
+                                            7677
+                                        ]
+                                    ],
+                                    "code_sequence": 1,
+                                    "abi_sequence": 1
+                                },
+                                "receiver": "flon.swap",
+                                "act": {
+                                    "account": "flon.mtoken",
+                                    "name": "transfer",
+                                    "authorization": [
+                                        {
+                                            "actor": "botuser11111",
+                                            "permission": "active"
+                                        }
+                                    ],
+                                    "data": {
+                                        "from": "botuser11111",
+                                        "to": "flon.swap",
+                                        "quantity": "0.514535 USDT",
+                                        "memo": "swap:9.53418172 FLON:flon.usdt"
+                                    },
+                                    "hex_data": "104208e12aac333d0000a8866330695ce7d907000000000006555344540000001e737761703a392e353334313831373220464c4f4e3a666c6f6e2e75736474"
+                                },
+                                "context_free": false,
+                                "elapsed": 56,
+                                "console": "",
+                                "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                "block_num": 17774760,
+                                "block_time": "2025-09-06T03:30:01.000",
+                                "producer_block_id": null,
+                                "account_ram_deltas": [],
+                                "except": null,
+                                "error_code": null,
+                                "return_value_hex_data": "",
+                                "inline_traces": []
+                            },
+                            {
+                                "action_ordinal": 6,
+                                "creator_action_ordinal": 5,
+                                "closest_unnotified_ancestor_action_ordinal": 2,
+                                "receipt": {
+                                    "receiver": "flon.mtoken",
+                                    "act_digest": "4555ba8fbcdfa6cd7b0b784ab0fdbe5b4ad0f9d3ea02c3ca7e396d503ac310a5",
+                                    "global_sequence": 20397933,
+                                    "recv_sequence": 11357,
+                                    "auth_sequence": [
+                                        [
+                                            "flon.swap",
+                                            37814
+                                        ]
+                                    ],
+                                    "code_sequence": 1,
+                                    "abi_sequence": 1
+                                },
+                                "receiver": "flon.mtoken",
+                                "act": {
+                                    "account": "flon.mtoken",
+                                    "name": "transfer",
+                                    "authorization": [
+                                        {
+                                            "actor": "flon.swap",
+                                            "permission": "active"
+                                        }
+                                    ],
+                                    "data": {
+                                        "from": "flon.swap",
+                                        "to": "swap.admin",
+                                        "quantity": "0.001543 USDT",
+                                        "memo": "swap fee collection: flon.usdt"
+                                    },
+                                    "hex_data": "0000a8866330695c00c0743219500dc7070600000000000006555344540000001e737761702066656520636f6c6c656374696f6e3a20666c6f6e2e75736474"
+                                },
+                                "context_free": false,
+                                "elapsed": 30,
+                                "console": "",
+                                "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                "block_num": 17774760,
+                                "block_time": "2025-09-06T03:30:01.000",
+                                "producer_block_id": null,
+                                "account_ram_deltas": [],
+                                "except": null,
+                                "error_code": null,
+                                "return_value_hex_data": "",
+                                "inline_traces": [
+                                    {
+                                        "action_ordinal": 8,
+                                        "creator_action_ordinal": 6,
+                                        "closest_unnotified_ancestor_action_ordinal": 6,
+                                        "receipt": {
+                                            "receiver": "flon.swap",
+                                            "act_digest": "4555ba8fbcdfa6cd7b0b784ab0fdbe5b4ad0f9d3ea02c3ca7e396d503ac310a5",
+                                            "global_sequence": 20397934,
+                                            "recv_sequence": 18999,
+                                            "auth_sequence": [
+                                                [
+                                                    "flon.swap",
+                                                    37815
+                                                ]
+                                            ],
+                                            "code_sequence": 1,
+                                            "abi_sequence": 1
+                                        },
+                                        "receiver": "flon.swap",
+                                        "act": {
+                                            "account": "flon.mtoken",
+                                            "name": "transfer",
+                                            "authorization": [
+                                                {
+                                                    "actor": "flon.swap",
+                                                    "permission": "active"
+                                                }
+                                            ],
+                                            "data": {
+                                                "from": "flon.swap",
+                                                "to": "swap.admin",
+                                                "quantity": "0.001543 USDT",
+                                                "memo": "swap fee collection: flon.usdt"
+                                            },
+                                            "hex_data": "0000a8866330695c00c0743219500dc7070600000000000006555344540000001e737761702066656520636f6c6c656374696f6e3a20666c6f6e2e75736474"
+                                        },
+                                        "context_free": false,
+                                        "elapsed": 10,
+                                        "console": "",
+                                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                        "block_num": 17774760,
+                                        "block_time": "2025-09-06T03:30:01.000",
+                                        "producer_block_id": null,
+                                        "account_ram_deltas": [],
+                                        "except": null,
+                                        "error_code": null,
+                                        "return_value_hex_data": "",
+                                        "inline_traces": []
+                                    },
+                                    {
+                                        "action_ordinal": 9,
+                                        "creator_action_ordinal": 6,
+                                        "closest_unnotified_ancestor_action_ordinal": 6,
+                                        "receipt": {
+                                            "receiver": "swap.admin",
+                                            "act_digest": "4555ba8fbcdfa6cd7b0b784ab0fdbe5b4ad0f9d3ea02c3ca7e396d503ac310a5",
+                                            "global_sequence": 20397935,
+                                            "recv_sequence": 6272,
+                                            "auth_sequence": [
+                                                [
+                                                    "flon.swap",
+                                                    37816
+                                                ]
+                                            ],
+                                            "code_sequence": 1,
+                                            "abi_sequence": 1
+                                        },
+                                        "receiver": "swap.admin",
+                                        "act": {
+                                            "account": "flon.mtoken",
+                                            "name": "transfer",
+                                            "authorization": [
+                                                {
+                                                    "actor": "flon.swap",
+                                                    "permission": "active"
+                                                }
+                                            ],
+                                            "data": {
+                                                "from": "flon.swap",
+                                                "to": "swap.admin",
+                                                "quantity": "0.001543 USDT",
+                                                "memo": "swap fee collection: flon.usdt"
+                                            },
+                                            "hex_data": "0000a8866330695c00c0743219500dc7070600000000000006555344540000001e737761702066656520636f6c6c656374696f6e3a20666c6f6e2e75736474"
+                                        },
+                                        "context_free": false,
+                                        "elapsed": 5,
+                                        "console": "",
+                                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                        "block_num": 17774760,
+                                        "block_time": "2025-09-06T03:30:01.000",
+                                        "producer_block_id": null,
+                                        "account_ram_deltas": [],
+                                        "except": null,
+                                        "error_code": null,
+                                        "return_value_hex_data": "",
+                                        "inline_traces": []
+                                    }
+                                ]
+                            },
+                            {
+                                "action_ordinal": 7,
+                                "creator_action_ordinal": 5,
+                                "closest_unnotified_ancestor_action_ordinal": 2,
+                                "receipt": {
+                                    "receiver": "flon.token",
+                                    "act_digest": "fe754ec9ecfd3bbeac94a469b27440f1a42fa153a00c2c1d15bd101ff392118c",
+                                    "global_sequence": 20397936,
+                                    "recv_sequence": 519549,
+                                    "auth_sequence": [
+                                        [
+                                            "flon.swap",
+                                            37817
+                                        ]
+                                    ],
+                                    "code_sequence": 1,
+                                    "abi_sequence": 1
+                                },
+                                "receiver": "flon.token",
+                                "act": {
+                                    "account": "flon.token",
+                                    "name": "transfer",
+                                    "authorization": [
+                                        {
+                                            "actor": "flon.swap",
+                                            "permission": "active"
+                                        }
+                                    ],
+                                    "data": {
+                                        "from": "flon.swap",
+                                        "to": "botuser11111",
+                                        "quantity": "10.48710012 FLON",
+                                        "memo": "flon swap by 0.514535 USDT:18446744073709551615"
+                                    },
+                                    "hex_data": "0000a8866330695c104208e12aac333d7c0b823e0000000008464c4f4e0000002f666c6f6e207377617020627920302e35313435333520555344543a3138343436373434303733373039353531363135"
+                                },
+                                "context_free": false,
+                                "elapsed": 31,
+                                "console": "",
+                                "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                "block_num": 17774760,
+                                "block_time": "2025-09-06T03:30:01.000",
+                                "producer_block_id": null,
+                                "account_ram_deltas": [],
+                                "except": null,
+                                "error_code": null,
+                                "return_value_hex_data": "",
+                                "inline_traces": [
+                                    {
+                                        "action_ordinal": 10,
+                                        "creator_action_ordinal": 7,
+                                        "closest_unnotified_ancestor_action_ordinal": 7,
+                                        "receipt": {
+                                            "receiver": "flon.swap",
+                                            "act_digest": "fe754ec9ecfd3bbeac94a469b27440f1a42fa153a00c2c1d15bd101ff392118c",
+                                            "global_sequence": 20397937,
+                                            "recv_sequence": 19000,
+                                            "auth_sequence": [
+                                                [
+                                                    "flon.swap",
+                                                    37818
+                                                ]
+                                            ],
+                                            "code_sequence": 1,
+                                            "abi_sequence": 1
+                                        },
+                                        "receiver": "flon.swap",
+                                        "act": {
+                                            "account": "flon.token",
+                                            "name": "transfer",
+                                            "authorization": [
+                                                {
+                                                    "actor": "flon.swap",
+                                                    "permission": "active"
+                                                }
+                                            ],
+                                            "data": {
+                                                "from": "flon.swap",
+                                                "to": "botuser11111",
+                                                "quantity": "10.48710012 FLON",
+                                                "memo": "flon swap by 0.514535 USDT:18446744073709551615"
+                                            },
+                                            "hex_data": "0000a8866330695c104208e12aac333d7c0b823e0000000008464c4f4e0000002f666c6f6e207377617020627920302e35313435333520555344543a3138343436373434303733373039353531363135"
+                                        },
+                                        "context_free": false,
+                                        "elapsed": 9,
+                                        "console": "",
+                                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                        "block_num": 17774760,
+                                        "block_time": "2025-09-06T03:30:01.000",
+                                        "producer_block_id": null,
+                                        "account_ram_deltas": [],
+                                        "except": null,
+                                        "error_code": null,
+                                        "return_value_hex_data": "",
+                                        "inline_traces": []
+                                    },
+                                    {
+                                        "action_ordinal": 11,
+                                        "creator_action_ordinal": 7,
+                                        "closest_unnotified_ancestor_action_ordinal": 7,
+                                        "receipt": {
+                                            "receiver": "botuser11111",
+                                            "act_digest": "fe754ec9ecfd3bbeac94a469b27440f1a42fa153a00c2c1d15bd101ff392118c",
+                                            "global_sequence": 20397938,
+                                            "recv_sequence": 5273,
+                                            "auth_sequence": [
+                                                [
+                                                    "flon.swap",
+                                                    37819
+                                                ]
+                                            ],
+                                            "code_sequence": 1,
+                                            "abi_sequence": 1
+                                        },
+                                        "receiver": "botuser11111",
+                                        "act": {
+                                            "account": "flon.token",
+                                            "name": "transfer",
+                                            "authorization": [
+                                                {
+                                                    "actor": "flon.swap",
+                                                    "permission": "active"
+                                                }
+                                            ],
+                                            "data": {
+                                                "from": "flon.swap",
+                                                "to": "botuser11111",
+                                                "quantity": "10.48710012 FLON",
+                                                "memo": "flon swap by 0.514535 USDT:18446744073709551615"
+                                            },
+                                            "hex_data": "0000a8866330695c104208e12aac333d7c0b823e0000000008464c4f4e0000002f666c6f6e207377617020627920302e35313435333520555344543a3138343436373434303733373039353531363135"
+                                        },
+                                        "context_free": false,
+                                        "elapsed": 3,
+                                        "console": "",
+                                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                                        "block_num": 17774760,
+                                        "block_time": "2025-09-06T03:30:01.000",
+                                        "producer_block_id": null,
+                                        "account_ram_deltas": [],
+                                        "except": null,
+                                        "error_code": null,
+                                        "return_value_hex_data": "",
+                                        "inline_traces": []
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "action_ordinal": 3,
+                        "creator_action_ordinal": 1,
+                        "closest_unnotified_ancestor_action_ordinal": 1,
+                        "receipt": {
+                            "receiver": "tokenxmm1111",
+                            "act_digest": "2a3897138feacb628ba3e0343b6f1d7a923b46d061d3ff3a65aa2d49abd4837c",
+                            "global_sequence": 20397939,
+                            "recv_sequence": 9495,
+                            "auth_sequence": [
+                                [
+                                    "tokenxmm1111",
+                                    6565
+                                ]
+                            ],
+                            "code_sequence": 30,
+                            "abi_sequence": 11
+                        },
+                        "receiver": "tokenxmm1111",
+                        "act": {
+                            "account": "tokenxmm1111",
+                            "name": "afterswap",
+                            "authorization": [
+                                {
+                                    "actor": "tokenxmm1111",
+                                    "permission": "active"
+                                }
+                            ],
+                            "data": {
+                                "bot": "botuser11111",
+                                "input_quantity": "0.514535 USDT",
+                                "bot_balance_before": "1881.79162985 FLON"
+                            },
+                            "hex_data": "104208e12aac333de7d9070000000000065553445400000069275ad02b00000008464c4f4e000000"
+                        },
+                        "context_free": false,
+                        "elapsed": 25,
+                        "console": "",
+                        "trx_id": "a51cc898b846d1c7485b900404ddb5fa2cbff106f644b42313d5b4030f41d3e6",
+                        "block_num": 17774760,
+                        "block_time": "2025-09-06T03:30:01.000",
+                        "producer_block_id": null,
+                        "account_ram_deltas": [],
+                        "except": null,
+                        "error_code": null,
+                        "return_value_hex_data": "",
+                        "inline_traces": []
+                    }
+                ]
+            }
+        ],
+        "trx_ram_delta": null,
+        "gas_traces": [
+            {
+                "account": "flonian",
+                "reserved_gas_before": 0,
+                "reserved_gas_after": 0,
+                "used_gas": 10480,
+                "converted_gas": 10480,
+                "ram_gas_delta": {
+                    "ram_delta": 0,
+                    "gas_delta": 0
+                }
+            }
+        ],
+        "except": null,
+        "error_code": null
+    }
+}
