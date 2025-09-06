@@ -1,5 +1,5 @@
 
-# swap-bot-py
+# pydexbot
 
 Quant Swap Bot project, managed with Poetry for dependency and build management.
 

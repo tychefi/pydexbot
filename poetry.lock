@@ -127,7 +127,7 @@ description = "Foreign Function Interface for Python calling C code."
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\""
+markers = "python_full_version > \"3.9.1\" and platform_python_implementation != \"PyPy\""
 files = [
     {file = "cffi-1.17.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:df8b1c11f177bc2313ec4b2d46baec87a5f3e71fc8b45dab2ee7cae86d9aba14"},
     {file = "cffi-1.17.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:8f2cdc858323644ab277e9bb925ad72ae0e67f69e804f4898c070998d50b1a67"},
@@ -371,6 +371,7 @@ description = "cryptography is a package which provides cryptographic recipes an
 optional = false
 python-versions = "!=3.9.0,!=3.9.1,>=3.7"
 groups = ["main"]
+markers = "python_full_version > \"3.9.1\""
 files = [
     {file = "cryptography-45.0.6-cp311-abi3-macosx_10_9_universal2.whl", hash = "sha256:048e7ad9e08cf4c0ab07ff7f36cc3115924e22e2266e034450a890d9e312dd74"},
     {file = "cryptography-45.0.6-cp311-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:44647c5d796f5fc042bbc6d61307d04bf29bccb74d188f18051b635f20a9c75f"},
@@ -967,7 +968,7 @@ description = "C parser in Python"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "platform_python_implementation != \"PyPy\""
+markers = "python_full_version > \"3.9.1\" and platform_python_implementation != \"PyPy\""
 files = [
     {file = "pycparser-2.22-py3-none-any.whl", hash = "sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc"},
     {file = "pycparser-2.22.tar.gz", hash = "sha256:491c8be9c040f5390f5bf44a5b07752bd07f56edf992381b05c701439eec10f6"},
@@ -1099,36 +1100,6 @@ files = [
 ]
 
 [[package]]
-name = "pyeoskit"
-version = "1.1.12"
-description = "Python Toolkit for EOS"
-optional = false
-python-versions = "*"
-groups = ["main"]
-files = [
-    {file = "pyeoskit-1.1.12-cp310-cp310-macosx_10_15_x86_64.whl", hash = "sha256:7c1e1f5008651fc541c854d85f3afbb9a007a921addb38628e5f4b41fd813855"},
-    {file = "pyeoskit-1.1.12-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6afeb92369c74ed215566446a360205f33314b10aaff9829ba418894b272de46"},
-    {file = "pyeoskit-1.1.12-cp310-cp310-win_amd64.whl", hash = "sha256:f3a35b11b59f7f9f65736cb0e3c51aba713e9d98ca8a8ea67b7f6cdf84d4368c"},
-    {file = "pyeoskit-1.1.12-cp37-cp37m-macosx_10_15_x86_64.whl", hash = "sha256:8a5fc065081abe532ab988138c9be2fc082e9913f784d1d3f121374af7e48f82"},
-    {file = "pyeoskit-1.1.12-cp37-cp37m-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7872feb7a805d11128ab067a0e9a480183e2588fe2fd1a12acb332e8bf2504aa"},
-    {file = "pyeoskit-1.1.12-cp37-cp37m-win_amd64.whl", hash = "sha256:abe471c568d90fead5e7723d6b708ecb8e60b6ad95a5658e3911afd6f9ed8617"},
-    {file = "pyeoskit-1.1.12-cp38-cp38-macosx_10_15_x86_64.whl", hash = "sha256:03270e4d77c8c36c5fd34331ac85516d0f7a637b65b459efcaaca80672beb9b5"},
-    {file = "pyeoskit-1.1.12-cp38-cp38-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5d2492ca1226505a4b08b1f8d4ee6cdae3682c1a46564fa5131085c2978c26da"},
-    {file = "pyeoskit-1.1.12-cp38-cp38-win_amd64.whl", hash = "sha256:d7459cd4ec8b9edc118bf5e83fe552acfbdd62d0c8e2b8852185938c8db5d2db"},
-    {file = "pyeoskit-1.1.12-cp39-cp39-macosx_10_15_x86_64.whl", hash = "sha256:2ded06c7940f63bbddcd0fe548ba11f1605018e1f8b4f112ab30784b31881879"},
-    {file = "pyeoskit-1.1.12-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d4a1f1f9196b77d3ed6c0b9db4f3373b468d2e757f16beed2f38237fc6f0766a"},
-    {file = "pyeoskit-1.1.12-cp39-cp39-win_amd64.whl", hash = "sha256:9f78af92307bacc6aa1dccbb184470a4af4ead53fa68bccf4184126959999ea9"},
-    {file = "pyeoskit-1.1.12.tar.gz", hash = "sha256:d3fa73d088ade904c44f2f0cf18110d08c11eb97953cea41a58538a47b4c3b48"},
-]
-
-[package.dependencies]
-asn1 = ">=2.4.2"
-base58 = ">=2.1.1"
-httpx = ">=0.19.0"
-ledgerblue = ">=0.1.41"
-requests-unixsocket = ">=0.2.0"
-
-[[package]]
 name = "pyflonkit"
 version = "1.1.12"
 description = "Python Toolkit for EOS"
@@ -1146,10 +1117,8 @@ ledgerblue = ">=0.1.41"
 requests_unixsocket = ">=0.2.0"
 
 [package.source]
-type = "git"
-url = "https://github.com/fullon-labs/pyflonkit.git"
-reference = "HEAD"
-resolved_reference = "5296adc8ddefb1efa9904dcc4cdbdb9f1696adab"
+type = "directory"
+url = "externals/pyflonkit"
 
 [[package]]
 name = "pygments"
@@ -1834,5 +1803,5 @@ all = ["winrt-Windows.Foundation.Collections[all] (>=3.2.1.0,<3.3.0.0)", "winrt-
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">3.9.1,<4.0"
-content-hash = "b7b6aa471b8524b566cf97c1c9674f06e0f28ad9c65b09d549838d2f10808fd5"
+python-versions = ">=3.9.1,<4.0"
+content-hash = "6e87597e6e67adec477e878862493333d7ce74b20229e347d3c2e67861df9bbc"
