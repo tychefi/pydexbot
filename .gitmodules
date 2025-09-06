@@ -1,3 +1,3 @@
 [submodule "externals/pyflonkit"]
 	path = externals/pyflonkit
-	url = git@github.com:fullon-labs/pyflonkit.git
+	url = https://github.com/fullon-labs/pyflonkit
