@@ -76,19 +76,22 @@ def parse_price_from_result(trx):
                     # result["input_contract"] = act["account"]
                     input_quantity = act_data["quantity"]  # "0.514535 USDT"
                     memo = act_data["memo"]  # "swap:9.53418172 FLON:flon.usdt"
+
+                    in_amount = float(input_quantity.split()[0])
+                    in_symbol = input_quantity.split()[1]
                     # parse memo: "flon swap by 0.514535 USDT:18446744073709551615"
                     output_quantity = memo.split("by")[1].strip()  # "0.514535 USDT:18446744073709551615"
                     output_quantity = output_quantity.split(":")[0].strip()  # "0.514535 USDT"
                     out_amount = float(output_quantity.split()[0])
-                    in_amount = float(input_quantity.split()[0])
+                    out_symbol = output_quantity.split()[1]
                     price = out_amount / in_amount if in_amount > 0 else 0
                     price_reverted = in_amount / out_amount if out_amount > 0 else 0
                     if side == "left":
-                        result["price"] = price
-                        result["price_reverted"] = price_reverted
+                        result["price"] = f"{price_reverted:.8f} {in_symbol}/{out_symbol}"
+                        result["price_reverted"] = f"{price:.8f} {out_symbol}/{in_symbol}"
                     else:
-                        result["price"] = price_reverted
-                        result["price_reverted"] = price
+                        result["price"] = f"{price:.8f} {out_symbol}/{in_symbol}"
+                        result["price_reverted"] = f"{price_reverted:.8f} {in_symbol}/{out_symbol}"
                     result["side"] = side
                     result["bot_user"] = bot_user
                     result["input_quantity"] = input_quantity
@@ -112,11 +115,6 @@ def run_bot_service():
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
             info(f"[{timestamp}] exectrade: memo={memo}")
-            # Build action data
-            action_data = {"memo": memo}
-            # Permission format: contract@trade
-            permission = f"{BOT_ADMIN}@{TRADE_PERMISSION}"
-            # Submit transaction
 
             result = utils.push_action(TOKENX_MM_CONTRACT, "exectrade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
             debug(f"exectrade result: {result}")
