@@ -126,7 +126,7 @@ def run_bot_service():
                 for k, v in trade_info.items():
                     info(f"{k:<{max_key_len}} : {v}")
             else:
-                info("ERROR: No trade executed.")
+                info("ERROR: No trade info found.")
             info("========== End Trade ==========")
             info(f"wait for: {sleep_time}s")
             time.sleep(sleep_time)
