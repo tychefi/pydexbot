@@ -3,9 +3,9 @@
 
 TARGET_DIR=${1}
 
-if [ -z "$TARGET_DIR" ] || [ -z "$TRADE_PRIVKEY" ]; then
-	echo "Usage: $0 <TARGET_DIR> <TRADE_PRIVKEY>" >&2
-	echo "Example: $0 /data/pydexbot \${your_trade_privkey}" >&2
+if [ -z "$TARGET_DIR" ]; then
+	echo "Usage: $0 <TARGET_DIR>" >&2
+	echo "Example: $0 /opt/data/pydexbot" >&2
 	exit 1
 fi
 
