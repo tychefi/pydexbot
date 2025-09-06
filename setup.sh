@@ -2,7 +2,6 @@
 # Initialize container data directory, copy config and compose files, and save private key
 
 TARGET_DIR=${1}
-TRADE_PRIVKEY=${2}
 
 if [ -z "$TARGET_DIR" ] || [ -z "$TRADE_PRIVKEY" ]; then
 	echo "Usage: $0 <TARGET_DIR> <TRADE_PRIVKEY>" >&2
@@ -13,14 +12,17 @@ fi
 echo "Using TARGET_DIR: $TARGET_DIR"
 
 mkdir -p "$TARGET_DIR/config" "$TARGET_DIR/data"
-cp config/config.yaml "$TARGET_DIR/config/" 2>/dev/null || echo "config.yaml not found, skipped."
-cp docker-compose.yml "$TARGET_DIR/" 2>/dev/null || echo "docker-compose.yml not found, skipped."
-
-# 修改 config.yaml 中的 TRADE_PRIVKEY
-if [ -f "$TARGET_DIR/config/config.yaml" ]; then
-	sed -i "s/^TRADE_PRIVKEY:.*/trade_privkey: $TRADE_PRIVKEY/" "$TARGET_DIR/config/config.yaml"
-	echo "trade_privkey updated in $TARGET_DIR/config/config.yaml"
+config_file="config/config.yaml"
+if [ -f config/.config.yaml ]; then
+	config_file="config/.config.yaml"
 fi
+echo "Using config file: config/.config.yaml"
+# backup existing config if exists
+if [ -f "$TARGET_DIR/config/config.yaml" ]; then
+	cp "$TARGET_DIR/config/config.yaml" "$TARGET_DIR/config/config.yaml.bak.$(date +%Y%m%d%H%M%S)"
+fi
+cp "$config_file" "$TARGET_DIR/config/"
+cp docker-compose.yml "$TARGET_DIR/"
 
 cat <<EOF > "$TARGET_DIR/run.sh"
 #!/bin/bash
@@ -36,9 +38,7 @@ cat <<EOF
 Setup complete!
 
 To run the container, execute:
-cd $TARGET_DIR
-
-docker compose up -d
+cd $TARGET_DIR && ./run.sh
 
 You can place your data files in $TARGET_DIR/data and config files in $TARGET_DIR/config.
 EOF
