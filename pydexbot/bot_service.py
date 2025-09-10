@@ -70,7 +70,7 @@ def parse_price_from_result(trx):
         return result
     traces = trx["processed"]["action_traces"]
     for trace in traces:
-        if "act" in trace and "name" in trace["act"] and trace["act"]["name"] == "exectrade":
+        if "act" in trace and "name" in trace["act"] and trace["act"]["name"] == "trade":
             if "inline_traces" not in trace or not trace["inline_traces"]:
                 continue
             if len(trace["inline_traces"]) < 2:
@@ -119,10 +119,10 @@ def parse_price_from_result(trx):
 
 def run_bot_service():
     """
-    Refer to run.bot.sh, loop to call exectrade action, sign and submit with pyflonkit, permission is contract@trade.
+    Refer to run.bot.sh, loop to call trade action, sign and submit with pyflonkit, permission is contract@trade.
     Private key is read from config.yaml.
     """
-    info("Exectrade bot started.")
+    info("trade bot started.")
     utils.setup_flon_network([NODE_URL])
     if not TRADE_PRIVKEY:
         error("trade_privkey not configured, please set trade_privkey in config.yaml")
@@ -132,7 +132,7 @@ def run_bot_service():
         try:
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
-            info(f"[{timestamp}] exectrade: memo={memo}")
+            debug(f"[{timestamp}] trade: memo={memo}")
 
             # Query market config
             market_config = get_market_config()
@@ -143,8 +143,8 @@ def run_bot_service():
                     time.sleep(3)
                     continue
 
-            result = utils.push_action(TOKENX_MM_CONTRACT, "exectrade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
-            debug(f"exectrade result: {result}")
+            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
+            debug(f"trade result: {result}")
             sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
             trade_info = parse_price_from_result(result)
             info("\n========== Trade Result ==========")
@@ -158,7 +158,7 @@ def run_bot_service():
             info(f"wait for: {sleep_time}s")
             time.sleep(sleep_time)
         except Exception as e:
-            error(f"exectrade failed: {e}")
+            error(f"trade failed: {e}")
             time.sleep(3)
 
 # ...existing code...

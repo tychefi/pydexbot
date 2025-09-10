@@ -41,7 +41,7 @@
                 "receiver": "tokenxmm1111",
                 "act": {
                     "account": "tokenxmm1111",
-                    "name": "exectrade",
+                    "name": "trade",
                     "authorization": [
                         {
                             "actor": "flonian",
