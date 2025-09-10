@@ -1,5 +1,3 @@
-
-
 import os
 import yaml
 import argparse
@@ -27,6 +25,8 @@ with open(CONFIG_PATH, "r") as f:
 NODE_URL = config["node_url"]
 TRADE_PRIVKEY = config.get("trade_privkey")
 TOKENX_MM_CONTRACT = config.get("tokenx_mm_contract")
+BUYLOWSELLHI_CONTRACT = config.get("buylowsellhi_contract", "buylowsellhi")
+TRADE_PAIR = config.get("trade_pair", "flon.usdt")
 BOT_ADMIN = config.get("bot_admin")
 TRADE_PERMISSION = config.get("trade_permission", "trade")
 
@@ -43,6 +43,24 @@ def info(msg):
 
 def error(msg):
     print(f"[ERROR] {msg}")
+
+def get_market_config():
+    """
+    Query market config from trademarkets table of buylowsellhi contract.
+    Returns dict of market row if found, else None.
+    """
+    resp = chainapi.get_table_rows(
+        True,
+        BUYLOWSELLHI_CONTRACT,
+        BUYLOWSELLHI_CONTRACT,
+        "trademarkets",
+        TRADE_PAIR,
+        TRADE_PAIR,
+        1
+    )
+    if resp and resp.get("rows"):
+        return resp["rows"][0]
+    return None
 
 def parse_price_from_result(trx):
     result = {}
@@ -115,6 +133,15 @@ def run_bot_service():
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
             info(f"[{timestamp}] exectrade: memo={memo}")
+
+            # Query market config
+            market_config = get_market_config()
+            if market_config:
+                paused = market_config.get("paused", 0)
+                if paused:
+                    info(f"Market {TRADE_PAIR} is paused, skipping this round.")
+                    time.sleep(3)
+                    continue
 
             result = utils.push_action(TOKENX_MM_CONTRACT, "exectrade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
             debug(f"exectrade result: {result}")
