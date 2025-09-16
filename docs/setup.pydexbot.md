@@ -74,7 +74,7 @@ bash setup.sh "$target_dir"
 ```
 ## 9. [optional] Check the config file
 ```bash
-cat $data_dir/config/config.yaml
+cat $target_dir/config/config.yaml
 ```
 
 ## 10. run pydexbot
