@@ -5,7 +5,7 @@ import time
 import random
 from pyflonkit import eosapi as chainapi, wallet
 from pydexbot import utils
-
+import threading
 
 
 # Parse config directory from command line
@@ -26,7 +26,7 @@ NODE_URL = config["node_url"]
 TRADE_PRIVKEY = config.get("trade_privkey")
 TOKENX_MM_CONTRACT = config.get("tokenx_mm_contract")
 BUYLOWSELLHI_CONTRACT = config.get("buylowsellhi_contract", "buylowsellhi")
-TRADE_PAIR = config.get("trade_pair", "flon.usdt")
+TRADE_PAIRS = config.get("trade_pairs", [])
 BOT_ADMIN = config.get("bot_admin")
 TRADE_PERMISSION = config.get("trade_permission", "trade")
 
@@ -34,17 +34,25 @@ MIN_INTERVAL_SECONDS = config.get("min_interval_seconds")
 MAX_INTERVAL_SECONDS = config.get("max_interval_seconds")
 VERBOSE = config.get("verbose", False)
 
-def debug(msg):
+def log_message(level, msg, log_file=None):
+    line = f"[{level}] {msg}"
+    if log_file:
+        with open(log_file, "a") as f:
+            f.write(line + "\n")
+    else:
+        print(line)
+
+def debug(msg, log_file=None):
     if VERBOSE:
-        print(f"[DEBUG] {msg}")
+        log_message("DEBUG", msg, log_file)
 
-def info(msg):
-    print(f"[INFO] {msg}")
+def info(msg, log_file=None):
+    log_message("INFO", msg, log_file)
 
-def error(msg):
-    print(f"[ERROR] {msg}")
+def error(msg, log_file=None):
+    log_message("ERROR", msg, log_file)
 
-def get_market_config():
+def get_market_config(trade_pair):
     """
     Query market config from trademarkets table of buylowsellhi contract.
     Returns dict of market row if found, else None.
@@ -54,8 +62,8 @@ def get_market_config():
         BUYLOWSELLHI_CONTRACT,
         BUYLOWSELLHI_CONTRACT,
         "trademarkets",
-        TRADE_PAIR,
-        TRADE_PAIR,
+        trade_pair,
+        trade_pair,
         1
     )
     if resp and resp.get("rows"):
@@ -117,29 +125,20 @@ def parse_price_from_result(trx):
                     return result
     return result
 
-def run_bot_service():
-    """
-    Refer to run.bot.sh, loop to call trade action, sign and submit with pyflonkit, permission is contract@trade.
-    Private key is read from config.yaml.
-    """
-    info("trade bot started.")
-    utils.setup_flon_network([NODE_URL])
-    if not TRADE_PRIVKEY:
-        error("trade_privkey not configured, please set trade_privkey in config.yaml")
-        return
-    wallet.import_key('tradewallet', TRADE_PRIVKEY)
+def run_pair_worker(trade_pair):
+    log_file = f"trade_{trade_pair.replace('.', '_')}.log"
+    info(f"trade bot started for {trade_pair}")
     while True:
         try:
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
-            debug(f"[{timestamp}] trade: memo={memo}")
+            debug(f"[{timestamp}] trade: pair={trade_pair} memo={memo}")
 
-            # Query market config
-            market_config = get_market_config()
+            market_config = get_market_config(trade_pair)
             if market_config:
                 paused = market_config.get("paused", 0)
                 if paused:
-                    info(f"Market {TRADE_PAIR} is paused, skipping this round.")
+                    info(f"Market {trade_pair} is paused, skipping this round.", log_file)
                     time.sleep(3)
                     continue
 
@@ -147,18 +146,39 @@ def run_bot_service():
             debug(f"trade result: {result}")
             sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
             trade_info = parse_price_from_result(result)
-            info("\n========== Trade Result ==========")
+            info(f"\n========== Trade Result ({trade_pair}) ==========" , log_file)
             if trade_info:
                 max_key_len = max(len(str(k)) for k in trade_info.keys())
                 for k, v in trade_info.items():
-                    info(f"{k:<{max_key_len}} : {v}")
+                    info(f"{k:<{max_key_len}} : {v}", log_file)
             else:
-                info("ERROR: No trade info found.")
-            info("========== End Trade ==========")
-            info(f"wait for: {sleep_time}s")
+                info("ERROR: No trade info found.", log_file)
+            info("========== End Trade ==========" , log_file)
+            info(f"wait for: {sleep_time}s", log_file)
             time.sleep(sleep_time)
         except Exception as e:
-            error(f"trade failed: {e}")
+            error(f"trade failed for {trade_pair}: {e}", log_file)
             time.sleep(3)
+
+def run_bot_service():
+    """
+    Entry point for multi-pair trading bot service. Uses trade_pairs from config.yaml.
+    Each trading pair runs in a separate thread with its own log file.
+    """
+    info("trade bot service started.")
+    utils.setup_flon_network([NODE_URL])
+    if not TRADE_PRIVKEY:
+        error("trade_privkey not configured, please set trade_privkey in config.yaml")
+        return
+    wallet.import_key('tradewallet', TRADE_PRIVKEY)
+    if not TRADE_PAIRS:
+        error("trade_pairs not configured in config.yaml")
+        return
+    threads = []
+    for trade_pair in TRADE_PAIRS:
+        t = threading.Thread(target=run_pair_worker, args=(trade_pair,), daemon=True)
+        t.start()
+        threads.append(t)
+    return threads
 
 # ...existing code...
