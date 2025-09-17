@@ -28,6 +28,8 @@ TOKENX_MM_CONTRACT = config.get("tokenx_mm_contract")
 BUYLOWSELLHI_CONTRACT = config.get("buylowsellhi_contract", "buylowsellhi")
 TRADE_PAIRS = config.get("trade_pairs", [])
 BOT_ADMIN = config.get("bot_admin")
+BOT_MM_CONTRACT = config.get("bot_mm_contract", "bot.mm")
+
 TRADE_PERMISSION = config.get("trade_permission", "trade")
 
 MIN_INTERVAL_SECONDS = config.get("min_interval_seconds")
@@ -69,6 +71,25 @@ def get_market_config(trade_pair):
     if resp and resp.get("rows"):
         return resp["rows"][0]
     return None
+
+
+def get_bots_from_group(group_name):
+    """
+    Read bots from botgroups table in bot.mm contract for the given group_name.
+    Returns a list of bot names.
+    """
+    resp = chainapi.get_table_rows(
+        True,
+        BOT_MM_CONTRACT,
+        BOT_MM_CONTRACT,
+        "botgroups",
+        group_name,
+        group_name,
+        1
+    )
+    if resp and resp.get("rows"):
+        return resp["rows"][0].get("bots", [])
+    return []
 
 def parse_price_from_result(trx):
     result = {}
@@ -128,11 +149,21 @@ def parse_price_from_result(trx):
 def run_pair_worker(trade_pair):
     log_file = f"trade_{trade_pair.replace('.', '_')}.log"
     info(f"trade bot started for {trade_pair}")
+    # Determine group_name for bot selection
     while True:
         try:
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
             debug(f"[{timestamp}] trade: pair={trade_pair} memo={memo}")
+
+            # Get bots from bot.mm botgroups table
+            bots = get_bots_from_group(trade_pair)
+            if not bots:
+                error(f"No bots found in group {trade_pair}", log_file)
+                time.sleep(3)
+                continue
+            selected_bot = random.choice(bots)
+            debug(f"Selected bot: {selected_bot}", log_file)
 
             market_config = get_market_config(trade_pair)
             if market_config:
@@ -142,8 +173,10 @@ def run_pair_worker(trade_pair):
                     time.sleep(3)
                     continue
 
-            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", {"memo": memo}, { BOT_ADMIN: TRADE_PERMISSION })
-            debug(f"trade result: {result}")
+            # Pass selected_bot in trade action data (add to memo or as bot field if needed)
+            action_data = {"bot": selected_bot, "trade_pair_name": trade_pair, "memo": memo}
+            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, { BOT_ADMIN: TRADE_PERMISSION })
+            debug(f"trade result: {result}", log_file)
             sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
             trade_info = parse_price_from_result(result)
             info(f"\n========== Trade Result ({trade_pair}) ==========" , log_file)

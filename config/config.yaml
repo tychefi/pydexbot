@@ -2,8 +2,9 @@
 node_url: "https://t.flonscan.io"
 trade_privkey: "5J4QAKhje6en1DsmvjEW3rbBhNTMsBHH5UaEh4ubuw7ev7unRAL"
 bot_admin: "flonian"
-tokenx_mm_contract: "tokenxmm1111"
+tokenx_mm_contract: "tokenx.mm"
 buylowsellhi_contract: "buylowsellhi"
+bot_mm_contract: "bot.mm"
 trade_pairs:
   - "flon.usdt"
 min_interval_seconds: 3      # Minimum interval in seconds
