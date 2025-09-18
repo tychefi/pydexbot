@@ -26,6 +26,7 @@ export target_dir="/opt/data/pydexbot"
 export bot_admin="flonian"
 export tokenx_mm_contract="tokenx.mm"
 export buylowsellhi_contract="buylowsellhi"
+export bot_mm_contract="bot.mm"
 export trade_pair="flon.usdt"
 export url="https://m.flonscan.io"
 ```
@@ -57,7 +58,9 @@ trade_privkey: "${trade_privkey}"
 bot_admin: "${bot_admin}"
 tokenx_mm_contract: "${tokenx_mm_contract}"
 buylowsellhi_contract: "${buylowsellhi_contract}"
-trade_pair: "${trade_pair}"
+bot_mm_contract: "${bot_mm_contract}"
+trade_pairs:
+  - "${trade_pair}"
 min_interval_seconds: 3
 max_interval_seconds: 10
 EOF
