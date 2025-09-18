@@ -6,19 +6,26 @@ import random
 from pyflonkit import eosapi as chainapi, wallet
 from pydexbot import utils
 import threading
+import signal
 
 
 # Parse config directory from command line
 parser = argparse.ArgumentParser()
 parser.add_argument('--config-dir', default=os.path.join(os.getcwd(), 'config'), help='Config directory path')
+parser.add_argument('--log-dir', default=os.path.join(os.getcwd(), 'logs'), help='Log directory path')
 args, _ = parser.parse_known_args()
 CONFIG_DIR = args.config_dir
+LOG_DIR = args.log_dir
 
-def get_config_path(filename):
-    return os.path.join(CONFIG_DIR, filename)
+def get_config_path():
+    # Prefer .config.yaml if exists
+    config_path = os.path.join(CONFIG_DIR, ".config.yaml")
+    if os.path.exists(config_path):
+        return config_path
+    return os.path.join(CONFIG_DIR, "config.yaml")
 
 # Load config.yaml
-CONFIG_PATH = get_config_path('config.yaml')
+CONFIG_PATH = get_config_path()
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
 
@@ -28,6 +35,7 @@ TOKENX_MM_CONTRACT = config.get("tokenx_mm_contract")
 BUYLOWSELLHI_CONTRACT = config.get("buylowsellhi_contract", "buylowsellhi")
 TRADE_PAIRS = config.get("trade_pairs", [])
 BOT_ADMIN = config.get("bot_admin")
+FEE_PAYER = config.get("fee_payer")
 BOT_MM_CONTRACT = config.get("bot_mm_contract", "bot.mm")
 
 TRADE_PERMISSION = config.get("trade_permission", "trade")
@@ -39,6 +47,9 @@ VERBOSE = config.get("verbose", False)
 def log_message(level, msg, log_file=None):
     line = f"[{level}] {msg}"
     if log_file:
+        log_dir = os.path.dirname(log_file)
+        if log_dir and not os.path.exists(log_dir):
+            os.makedirs(log_dir, exist_ok=True)
         with open(log_file, "a") as f:
             f.write(line + "\n")
     else:
@@ -146,17 +157,15 @@ def parse_price_from_result(trx):
                     return result
     return result
 
-def run_pair_worker(trade_pair):
-    log_file = f"trade_{trade_pair.replace('.', '_')}.log"
+def run_pair_worker(trade_pair, stop_event):
+    log_file = os.path.join(LOG_DIR, f"trade_{trade_pair.replace('.', '_')}.log")
     info(f"trade bot started for {trade_pair}")
-    # Determine group_name for bot selection
-    while True:
+    while not stop_event.is_set():
         try:
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
             debug(f"[{timestamp}] trade: pair={trade_pair} memo={memo}")
 
-            # Get bots from bot.mm botgroups table
             bots = get_bots_from_group(trade_pair)
             if not bots:
                 error(f"No bots found in group {trade_pair}", log_file)
@@ -173,9 +182,12 @@ def run_pair_worker(trade_pair):
                     time.sleep(3)
                     continue
 
-            # Pass selected_bot in trade action data (add to memo or as bot field if needed)
             action_data = {"bot": selected_bot, "trade_pair_name": trade_pair, "memo": memo}
-            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, { BOT_ADMIN: TRADE_PERMISSION })
+            authorizations = {
+                FEE_PAYER: "trade",
+                selected_bot: "trade"
+            }
+            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, authorizations)
             debug(f"trade result: {result}", log_file)
             sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
             trade_info = parse_price_from_result(result)
@@ -188,7 +200,11 @@ def run_pair_worker(trade_pair):
                 info("ERROR: No trade info found.", log_file)
             info("========== End Trade ==========" , log_file)
             info(f"wait for: {sleep_time}s", log_file)
-            time.sleep(sleep_time)
+            # sleep with early exit
+            for _ in range(sleep_time):
+                if stop_event.is_set():
+                    break
+                time.sleep(1)
         except Exception as e:
             error(f"trade failed for {trade_pair}: {e}", log_file)
             time.sleep(3)
@@ -207,11 +223,17 @@ def run_bot_service():
     if not TRADE_PAIRS:
         error("trade_pairs not configured in config.yaml")
         return
+    stop_event = threading.Event()
     threads = []
     for trade_pair in TRADE_PAIRS:
-        t = threading.Thread(target=run_pair_worker, args=(trade_pair,), daemon=True)
+        t = threading.Thread(target=run_pair_worker, args=(trade_pair, stop_event))
         t.start()
         threads.append(t)
-    return threads
+    def handle_sigint(signum, frame):
+        info("Received Ctrl-C, stopping all bots...")
+        stop_event.set()
+    signal.signal(signal.SIGINT, handle_sigint)
+    for t in threads:
+        t.join()
 
 # ...existing code...
