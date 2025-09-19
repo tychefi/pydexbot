@@ -24,6 +24,7 @@ Login to the Running Server by `ssh`.
 export trade_privkey="${YOUR_TRADE_PRIVKEY}"
 export target_dir="/opt/data/pydexbot"
 export bot_admin="flonian"
+export fee_payer="flonian"
 export tokenx_mm_contract="tokenx.mm"
 export buylowsellhi_contract="buylowsellhi"
 export bot_mm_contract="bot.mm"
@@ -31,17 +32,17 @@ export trade_pair="flon.usdt"
 export url="https://m.flonscan.io"
 ```
 
-## 4. Clone `pydexbot` repo
+## 4. Clone or pull `pydexbot` repo
 
 ```bash
 cd $HOME
 # clone pydexbot repo
 git clone --recurse-submodules https://github.com/tychefi/pydexbot.git
+# or: cd $HOME/pydexbot && git pull
 ```
 ## 5. `cd` into `pydexbot` source directory
 
 ```bash
-
 cd $HOME/pydexbot
 ```
 ## 6. Build and Run `pydexbot` docker image
@@ -56,6 +57,7 @@ cat <<EOF > config/.config.yaml
 node_url: "${url}"
 trade_privkey: "${trade_privkey}"
 bot_admin: "${bot_admin}"
+fee_payer: "${fee_payer}"
 tokenx_mm_contract: "${tokenx_mm_contract}"
 buylowsellhi_contract: "${buylowsellhi_contract}"
 bot_mm_contract: "${bot_mm_contract}"
@@ -87,5 +89,8 @@ cd $target_dir && bash run.sh
 
 ## 11. Check the log
 ```bash
+## check pydexbot log
 docker logs -n 10 -f pydexbot
+## check trade_pair log
+tail -n 10 -f "logs/trade_${trade_pair//./_}.log"
 ```
