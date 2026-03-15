@@ -20,3 +20,5 @@ services:
       options:
         max-size: "10m"
         max-file: "10"
+        mode: "non-blocking"
+        max-buffer-size: "4m"
