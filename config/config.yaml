@@ -8,5 +8,6 @@ buylowsellhi_contract: "buylowsellhi"
 bot_mm_contract: "bot.mm"
 trade_pairs:
   - "flon.usdt"
+  - "sing.usdt"
 min_interval_seconds: 3      # Minimum interval in seconds
 max_interval_seconds: 10      # Maximum interval in seconds
