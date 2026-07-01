@@ -66,6 +66,8 @@ __pycache__
 # setting or config files
 .settings
 .config*
+# Ignore deployment/runtime override config with secrets
+config/.config.yaml
 
 #docker
 .docker*

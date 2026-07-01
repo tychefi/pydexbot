@@ -31,9 +31,9 @@ cd $target_dir
 
 ## 5. Edit config file to add new trade_pair
 
-edit `config/config.yaml` file, add new trade_pair to `trade_pairs` section:
+edit `config/config.example.yaml` file, add new trade_pair to `trade_pairs` section:
 ```bash
-vim config/config.yaml
+vim config/config.example.yaml
 ```
 add new trade_pair `eth.usdt` to `trade_pairs` section as below:
 ```yaml

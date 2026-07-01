@@ -38,3 +38,49 @@ All dependencies are declared in `pyproject.toml`. It is recommended to use Poet
 ## Testing
 
 Place your test code in the `tests/` directory. It is recommended to use pytest.
+
+## Configuration
+
+The bot loads runtime settings from `./config/.config.yaml` if it exists. This file should contain deployment-specific values and secrets, and it should not be committed to Git.
+
+Use `./config/config.example.yaml` as the template for your configuration. Copy it to `.config.yaml` and update values for the target environment.
+
+Example:
+
+```bash
+cp config/config.example.yaml config/.config.yaml
+vim config/.config.yaml
+```
+
+Notes:
+
+- `https://t.flonscan.io` is the testnet endpoint.
+- `https://m.flonscan.io` is the mainnet endpoint.
+- `config/config.example.yaml` is a template, not the active runtime config.
+- `config/.config.yaml` is ignored by `.gitignore` to keep secrets safe.
+
+## Adding a new trading pair
+
+To add a new market for automatic market making trading:
+
+1. Open your active runtime config file:
+   ```bash
+   vim config/.config.yaml
+   ```
+2. Add the new trading pair string to the `trade_pairs` list.
+   ```yaml
+   trade_pairs:
+     - "flon.usdt"
+     - "sing.usdt"
+     - "newtoken.usdt"
+   ```
+3. Make sure the new pair is configured on-chain:
+   - `bot.mm::botgroups` must contain a bot group named exactly the pair string.
+   - `buylowsellhi::trademarkets` must contain a market row named exactly the pair string.
+4. Ensure the new bot group has at least one bot account with sufficient balance, and that the market liquidity is funded.
+5. Restart the bot service or container so it reloads the updated config.
+
+Notes:
+- The pair name in `trade_pairs` must match the on-chain market and bot group exactly.
+- If you make this change in `config/config.example.yaml`, copy it to `config/.config.yaml` or repeat it there for the active runtime.
+- The service uses `config/.config.yaml` when present, so the example file is only a template.

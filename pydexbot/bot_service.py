@@ -22,9 +22,9 @@ def get_config_path():
     config_path = os.path.join(CONFIG_DIR, ".config.yaml")
     if os.path.exists(config_path):
         return config_path
-    return os.path.join(CONFIG_DIR, "config.yaml")
+    return os.path.join(CONFIG_DIR, "config.example.yaml")
 
-# Load config.yaml
+# Load config.example.yaml or override .config.yaml
 CONFIG_PATH = get_config_path()
 with open(CONFIG_PATH, "r") as f:
     config = yaml.safe_load(f)
@@ -211,17 +211,17 @@ def run_pair_worker(trade_pair, stop_event):
 
 def run_bot_service():
     """
-    Entry point for multi-pair trading bot service. Uses trade_pairs from config.yaml.
+    Entry point for multi-pair trading bot service. Uses trade_pairs from config.example.yaml or .config.yaml.
     Each trading pair runs in a separate thread with its own log file.
     """
     info("trade bot service started.")
     utils.setup_flon_network([NODE_URL])
     if not TRADE_PRIVKEY:
-        error("trade_privkey not configured, please set trade_privkey in config.yaml")
+        error("trade_privkey not configured, please set trade_privkey in config.example.yaml or config/.config.yaml")
         return
     wallet.import_key('tradewallet', TRADE_PRIVKEY)
     if not TRADE_PAIRS:
-        error("trade_pairs not configured in config.yaml")
+        error("trade_pairs not configured in config.example.yaml or config/.config.yaml")
         return
     stop_event = threading.Event()
     threads = []
