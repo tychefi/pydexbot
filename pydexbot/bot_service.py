@@ -3,6 +3,7 @@ import yaml
 import argparse
 import time
 import random
+from datetime import datetime, timezone
 from pyflonkit import eosapi as chainapi, wallet
 from pydexbot import utils
 import threading
@@ -42,6 +43,10 @@ TRADE_PERMISSION = config.get("trade_permission", "trade")
 
 MIN_INTERVAL_SECONDS = config.get("min_interval_seconds")
 MAX_INTERVAL_SECONDS = config.get("max_interval_seconds")
+INTERVAL_JITTER_RATIO = config.get("interval_jitter_ratio", 0.25)
+RETRY_MIN_INTERVAL_SECONDS = config.get("retry_min_interval_seconds", 3)
+RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 8)
+READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 2)
 VERBOSE = config.get("verbose", False)
 
 def log_message(level, msg, log_file=None):
@@ -65,6 +70,51 @@ def info(msg, log_file=None):
 def error(msg, log_file=None):
     log_message("ERROR", msg, log_file)
 
+def normalize_interval(min_seconds, max_seconds):
+    min_seconds = float(min_seconds or 1)
+    max_seconds = float(max_seconds or min_seconds)
+    if min_seconds <= 0:
+        min_seconds = 1
+    if max_seconds < min_seconds:
+        max_seconds = min_seconds
+    return min_seconds, max_seconds
+
+def next_interval_seconds(min_seconds, max_seconds):
+    min_seconds, max_seconds = normalize_interval(min_seconds, max_seconds)
+    base = random.uniform(min_seconds, max_seconds) if max_seconds > min_seconds else min_seconds
+    jitter_ratio = max(float(INTERVAL_JITTER_RATIO or 0), 0)
+    if jitter_ratio > 0:
+        jitter_span = max(base * jitter_ratio, 1.0)
+        base = random.uniform(max(1.0, base - jitter_span), base + jitter_span)
+    return max(1.0, base)
+
+def sleep_with_jitter(stop_event, min_seconds, max_seconds, log_file=None, reason="next round"):
+    sleep_time = next_interval_seconds(min_seconds, max_seconds)
+    info(f"wait for {reason}: {sleep_time:.1f}s", log_file)
+    sleep_until(stop_event, sleep_time)
+
+def sleep_until(stop_event, sleep_time):
+    deadline = time.monotonic() + sleep_time
+    while not stop_event.is_set():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        time.sleep(min(1.0, remaining))
+
+def parse_chain_time_seconds(value):
+    if not value:
+        return 0
+    if isinstance(value, (int, float)):
+        return int(value)
+    value = str(value).replace("Z", "")
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            dt = datetime.strptime(value, fmt).replace(tzinfo=timezone.utc)
+            return int(dt.timestamp())
+        except ValueError:
+            continue
+    return 0
+
 def get_market_config(trade_pair):
     """
     Query market config from trademarkets table of buylowsellhi contract.
@@ -82,6 +132,47 @@ def get_market_config(trade_pair):
     if resp and resp.get("rows"):
         return resp["rows"][0]
     return None
+
+def get_trade_schedule(trade_pair):
+    """
+    Query per-pair trade schedule from tokenx.mm schedules table.
+    Returns dict of schedule row if found, else None.
+    """
+    resp = chainapi.get_table_rows(
+        True,
+        TOKENX_MM_CONTRACT,
+        TOKENX_MM_CONTRACT,
+        "schedules",
+        trade_pair,
+        trade_pair,
+        1
+    )
+    if resp and resp.get("rows"):
+        row = resp["rows"][0]
+        if row.get("trade_pair_name") == trade_pair:
+            return row
+    return None
+
+def seconds_until_trade_ready(trade_pair):
+    schedule = get_trade_schedule(trade_pair)
+    if not schedule:
+        return 0
+    last_traded_at = parse_chain_time_seconds(schedule.get("last_traded_at"))
+    random_interval_seconds = int(schedule.get("random_interval_seconds") or 0)
+    if last_traded_at <= 0 or random_interval_seconds <= 0:
+        return 0
+    next_trade_at = last_traded_at + random_interval_seconds
+    return max(0, next_trade_at - int(time.time()))
+
+def wait_for_contract_schedule(trade_pair, stop_event, log_file=None):
+    wait_seconds = seconds_until_trade_ready(trade_pair)
+    if wait_seconds <= 0:
+        return False
+    ready_jitter = max(float(READY_JITTER_SECONDS or 0), 0)
+    sleep_time = wait_seconds + random.uniform(0, ready_jitter)
+    info(f"wait for contract schedule: {sleep_time:.1f}s", log_file)
+    sleep_until(stop_event, sleep_time)
+    return True
 
 
 def get_bots_from_group(group_name):
@@ -166,30 +257,32 @@ def run_pair_worker(trade_pair, stop_event):
             memo = str(random.randint(0, 2**32 - 1))
             debug(f"[{timestamp}] trade: pair={trade_pair} memo={memo}")
 
-            bots = get_bots_from_group(trade_pair)
-            if not bots:
-                error(f"No bots found in group {trade_pair}", log_file)
-                time.sleep(3)
-                continue
-            selected_bot = random.choice(bots)
-            debug(f"Selected bot: {selected_bot}", log_file)
-
             market_config = get_market_config(trade_pair)
             if market_config:
                 paused = market_config.get("paused", 0)
                 if paused:
                     info(f"Market {trade_pair} is paused, skipping this round.", log_file)
-                    time.sleep(3)
+                    sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after paused market")
                     continue
+
+            if wait_for_contract_schedule(trade_pair, stop_event, log_file):
+                continue
+
+            bots = get_bots_from_group(trade_pair)
+            if not bots:
+                error(f"No bots found in group {trade_pair}", log_file)
+                sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after missing bots")
+                continue
+            selected_bot = random.choice(bots)
+            debug(f"Selected bot: {selected_bot}", log_file)
 
             action_data = {"bot": selected_bot, "trade_pair_name": trade_pair, "memo": memo}
             authorizations = {
-                FEE_PAYER: "trade",
-                selected_bot: "trade"
+                FEE_PAYER: TRADE_PERMISSION,
+                selected_bot: TRADE_PERMISSION
             }
             result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, authorizations)
             debug(f"trade result: {result}", log_file)
-            sleep_time = random.randint(MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS)
             trade_info = parse_price_from_result(result)
             info(f"\n========== Trade Result ({trade_pair}) ==========" , log_file)
             if trade_info:
@@ -199,15 +292,10 @@ def run_pair_worker(trade_pair, stop_event):
             else:
                 info("ERROR: No trade info found.", log_file)
             info("========== End Trade ==========" , log_file)
-            info(f"wait for: {sleep_time}s", log_file)
-            # sleep with early exit
-            for _ in range(sleep_time):
-                if stop_event.is_set():
-                    break
-                time.sleep(1)
+            sleep_with_jitter(stop_event, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS, log_file, "next trade")
         except Exception as e:
             error(f"trade failed for {trade_pair}: {e}", log_file)
-            time.sleep(3)
+            sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after failure")
 
 def run_bot_service():
     """

@@ -65,6 +65,10 @@ trade_pairs:
   - "${trade_pair}"
 min_interval_seconds: 3
 max_interval_seconds: 10
+interval_jitter_ratio: 0.25
+retry_min_interval_seconds: 3
+retry_max_interval_seconds: 8
+ready_jitter_seconds: 2
 EOF
 ```
 ## 7. [optional] create dest root dir

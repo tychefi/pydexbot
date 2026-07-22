@@ -22,3 +22,7 @@ trade_pairs:
   - "sing.usdt"
 min_interval_seconds: 3      # Minimum interval in seconds
 max_interval_seconds: 10      # Maximum interval in seconds
+interval_jitter_ratio: 0.25   # Adds +/- jitter to avoid fixed-frequency calls, including min=max configs
+retry_min_interval_seconds: 3 # Minimum retry interval after errors, paused markets, or missing bots
+retry_max_interval_seconds: 8 # Maximum retry interval after errors, paused markets, or missing bots
+ready_jitter_seconds: 2       # Extra random delay after contract schedules table says the pair is ready
