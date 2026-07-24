@@ -1,7 +1,7 @@
 services:
   pydexbot:
     container_name: pydexbot
-    build: .
+    image: pydexbot
     # Mount config, logs, and data directories
     volumes:
       - ./config:/app/config
