@@ -41,12 +41,12 @@ BOT_MM_CONTRACT = config.get("bot_mm_contract", "bot.mm")
 
 TRADE_PERMISSION = config.get("trade_permission", "trade")
 
-MIN_INTERVAL_SECONDS = config.get("min_interval_seconds")
-MAX_INTERVAL_SECONDS = config.get("max_interval_seconds")
-INTERVAL_JITTER_RATIO = config.get("interval_jitter_ratio", 0.25)
-RETRY_MIN_INTERVAL_SECONDS = config.get("retry_min_interval_seconds", 3)
-RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 8)
-READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 2)
+MIN_INTERVAL_SECONDS = config.get("min_interval_seconds", 4)
+MAX_INTERVAL_SECONDS = config.get("max_interval_seconds", 12)
+INTERVAL_JITTER_RATIO = config.get("interval_jitter_ratio", 0.35)
+RETRY_MIN_INTERVAL_SECONDS = config.get("retry_min_interval_seconds", 10)
+RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 30)
+READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 8)
 VERBOSE = config.get("verbose", False)
 
 def log_message(level, msg, log_file=None):

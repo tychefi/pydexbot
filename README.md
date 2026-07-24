@@ -58,6 +58,8 @@ Notes:
 - `https://m.flonscan.io` is the mainnet endpoint.
 - `config/config.example.yaml` is a template, not the active runtime config.
 - `config/.config.yaml` is ignored by `.gitignore` to keep secrets safe.
+- `min_interval_seconds` and `max_interval_seconds` are local polling intervals after a successful push. Keep them below the smallest on-chain `min_trade_seconds`; `tokenx.mm::schedules` controls the actual next trade readiness.
+- `ready_jitter_seconds` adds a final delay after the contract schedule is ready, so multiple pairs do not submit at an exact fixed second.
 
 ## Adding a new trading pair
 

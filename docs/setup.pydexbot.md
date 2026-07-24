@@ -63,12 +63,12 @@ buylowsellhi_contract: "${buylowsellhi_contract}"
 bot_mm_contract: "${bot_mm_contract}"
 trade_pairs:
   - "${trade_pair}"
-min_interval_seconds: 3
-max_interval_seconds: 10
-interval_jitter_ratio: 0.25
-retry_min_interval_seconds: 3
-retry_max_interval_seconds: 8
-ready_jitter_seconds: 2
+min_interval_seconds: 4
+max_interval_seconds: 12
+interval_jitter_ratio: 0.35
+retry_min_interval_seconds: 10
+retry_max_interval_seconds: 30
+ready_jitter_seconds: 8
 EOF
 ```
 ## 7. [optional] create dest root dir
