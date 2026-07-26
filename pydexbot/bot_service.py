@@ -5,6 +5,7 @@ import time
 import random
 from decimal import Decimal
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pyflonkit import eosapi as chainapi, wallet
 from pydexbot import utils
 import threading
@@ -52,8 +53,7 @@ READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 8)
 VERBOSE = config.get("verbose", False)
 SIDE_SEGMENT_SECONDS = 14400
 CORRECTION_BAND_MULTIPLIER = Decimal("2.0")
-INVENTORY_LOW_BPS = 200
-INVENTORY_HIGH_BPS = 9800
+LOG_TIMEZONE = config.get("log_timezone", "Asia/Shanghai")
 
 def log_message(level, msg, log_file=None):
     line = f"[{level}] {msg}"
@@ -84,6 +84,35 @@ def format_no_fill_message(exc):
         return None
     line = text[idx:].splitlines()[0].strip()
     return line.rstrip('",')
+
+def extract_transaction_id(trx):
+    if not isinstance(trx, dict):
+        return None
+    for key in ("transaction_id", "trx_id", "id"):
+        value = trx.get(key)
+        if value:
+            return str(value)
+    processed = trx.get("processed")
+    if isinstance(processed, dict):
+        for key in ("transaction_id", "trx_id", "id"):
+            value = processed.get(key)
+            if value:
+                return str(value)
+    return None
+
+def format_transaction_link(trx, submitted_at=None):
+    tx_id = extract_transaction_id(trx)
+    if not tx_id:
+        return None
+    if submitted_at is None:
+        submitted_at = current_log_time()
+    return f"[{submitted_at}](https://flonscan.io/m/transaction/{tx_id.upper()})"
+
+def current_log_time():
+    try:
+        return datetime.now(ZoneInfo(LOG_TIMEZONE)).strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return time.strftime('%Y-%m-%d %H:%M:%S')
 
 def normalize_interval(min_seconds, max_seconds):
     min_seconds = float(min_seconds or 1)
@@ -200,11 +229,6 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
         segment_rand = mix32(seed ^ ((segment * 2246822519) & 0xffffffff))
         side = "left" if (segment_rand & 1) == 0 else "right"
 
-    left_inventory_bps = calc_left_inventory_bps(bot_market, left_price)
-    if left_inventory_bps < INVENTORY_LOW_BPS and Decimal(str(bot_market["right_pool"]["total_quantity"].split()[0])) > 0:
-        side = "right"
-    elif left_inventory_bps > INVENTORY_HIGH_BPS and Decimal(str(bot_market["left_pool"]["total_quantity"].split()[0])) > 0:
-        side = "left"
     return side
 
 def side_required_balance(side, market_config, swap_market, bot_market):
@@ -472,9 +496,13 @@ def run_pair_worker(trade_pair, stop_event):
                 selected_bot: TRADE_PERMISSION
             }
             result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, authorizations)
+            submitted_at = current_log_time()
             debug(f"trade result: {result}", log_file)
             trade_info = parse_price_from_result(result)
+            transaction_link = format_transaction_link(result, submitted_at)
             info(f"\n========== Trade Result ({trade_pair}) ==========" , log_file)
+            if transaction_link:
+                info(f"submitted_at    : {transaction_link}", log_file)
             if trade_info:
                 max_key_len = max(len(str(k)) for k in trade_info.keys())
                 for k, v in trade_info.items():
