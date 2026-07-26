@@ -51,7 +51,9 @@ RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 30)
 READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 8)
 VERBOSE = config.get("verbose", False)
 SIDE_SEGMENT_SECONDS = 14400
-EDGE_REVERSION_THRESHOLD = Decimal("0.92")
+CORRECTION_BAND_MULTIPLIER = Decimal("2.0")
+INVENTORY_LOW_BPS = 200
+INVENTORY_HIGH_BPS = 9800
 
 def log_message(level, msg, log_file=None):
     line = f"[{level}] {msg}"
@@ -167,15 +169,6 @@ def mix32(value):
     value ^= value >> 16
     return value & 0xffffffff
 
-def normalized_price_offset(left_price, target_price, fluctuation_ratio):
-    if target_price <= 0 or fluctuation_ratio <= 0:
-        return Decimal("0")
-    band_width = target_price * fluctuation_ratio
-    if band_width <= 0:
-        return Decimal("0")
-    offset = (left_price - target_price) / band_width
-    return max(Decimal("-1"), min(Decimal("1"), offset))
-
 def calc_left_inventory_bps(bot_market, left_price):
     left_amount, _ = parse_asset(bot_market["left_pool"]["total_quantity"])
     right_amount, _ = parse_asset(bot_market["right_pool"]["total_quantity"])
@@ -194,18 +187,13 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
         return None
 
     left_price = right_amount / left_amount
-    min_price = target_price * (Decimal("1") - fluctuation_ratio)
-    max_price = target_price * (Decimal("1") + fluctuation_ratio)
-    offset = normalized_price_offset(left_price, target_price, fluctuation_ratio)
-
+    correction_ratio = min(fluctuation_ratio * CORRECTION_BAND_MULTIPLIER, Decimal("1"))
+    min_price = target_price * (Decimal("1") - correction_ratio)
+    max_price = target_price * (Decimal("1") + correction_ratio)
     if left_price < min_price:
         side = "right"
     elif left_price > max_price:
         side = "left"
-    elif offset >= EDGE_REVERSION_THRESHOLD:
-        side = "left"
-    elif offset <= -EDGE_REVERSION_THRESHOLD:
-        side = "right"
     else:
         segment = int(time.time()) // SIDE_SEGMENT_SECONDS
         seed = utils.name_to_number(trade_pair) & 0xffffffff
@@ -213,9 +201,9 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
         side = "left" if (segment_rand & 1) == 0 else "right"
 
     left_inventory_bps = calc_left_inventory_bps(bot_market, left_price)
-    if left_inventory_bps < 1000 and Decimal(str(bot_market["right_pool"]["total_quantity"].split()[0])) > 0:
+    if left_inventory_bps < INVENTORY_LOW_BPS and Decimal(str(bot_market["right_pool"]["total_quantity"].split()[0])) > 0:
         side = "right"
-    elif left_inventory_bps > 9000 and Decimal(str(bot_market["left_pool"]["total_quantity"].split()[0])) > 0:
+    elif left_inventory_bps > INVENTORY_HIGH_BPS and Decimal(str(bot_market["left_pool"]["total_quantity"].split()[0])) > 0:
         side = "left"
     return side
 
@@ -236,6 +224,25 @@ def side_required_balance(side, market_config, swap_market, bot_market):
     pool_balance, _ = parse_asset(pool["balance"]["quantity"])
     return pool["balance"]["contract"], symbol, pool_balance, required_amount
 
+def possible_trade_sides(market_config, swap_market):
+    target_price = Decimal(str(market_config.get("target_price") or "0"))
+    fluctuation_ratio = Decimal(str(market_config.get("fluctuation_ratio") or "0"))
+    left_amount, _ = parse_asset(swap_market["left_pool_quant"]["quantity"])
+    right_amount, _ = parse_asset(swap_market["right_pool_quant"]["quantity"])
+    if left_amount <= 0 or right_amount <= 0:
+        return ("left", "right")
+
+    left_price = right_amount / left_amount
+    correction_ratio = min(fluctuation_ratio * CORRECTION_BAND_MULTIPLIER, Decimal("1"))
+    min_price = target_price * (Decimal("1") - correction_ratio)
+    max_price = target_price * (Decimal("1") + correction_ratio)
+
+    if left_price < min_price:
+        return ("right",)
+    if left_price > max_price:
+        return ("left",)
+    return ("left", "right")
+
 def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
     swap_market = get_swap_market(trade_pair)
     bot_market = get_bot_market(trade_pair)
@@ -250,28 +257,44 @@ def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
         debug(f"Selected bot without side prediction: {selected}", log_file)
         return selected
 
-    contract, symbol, pool_balance, required_amount = side_required_balance(side, market_config, swap_market, bot_market)
+    candidate_sides = possible_trade_sides(market_config, swap_market)
+    requirements = {
+        candidate_side: side_required_balance(candidate_side, market_config, swap_market, bot_market)
+        for candidate_side in candidate_sides
+    }
     eligible = []
     balances = {}
     for bot in bots:
-        balance = get_currency_balance(contract, bot, symbol)
-        balances[bot] = balance
-        if balance + pool_balance >= required_amount:
+        bot_balances = {}
+        is_eligible = True
+        for candidate_side, (contract, symbol, pool_balance, required_amount) in requirements.items():
+            balance_key = f"{contract}:{symbol}"
+            if balance_key not in bot_balances:
+                bot_balances[balance_key] = get_currency_balance(contract, bot, symbol)
+            available_amount = bot_balances[balance_key] + pool_balance
+            if available_amount < required_amount:
+                is_eligible = False
+        balances[bot] = {key: str(value) for key, value in bot_balances.items()}
+        if is_eligible:
             eligible.append(bot)
 
     if eligible:
         selected = random.choice(eligible)
         debug(
-            f"Selected funded bot: {selected}, side={side}, symbol={symbol}, "
-            f"required={required_amount}, balances={balances}",
+            f"Selected funded bot: {selected}, predicted_side={side}, "
+            f"candidate_sides={candidate_sides}, balances={balances}",
             log_file,
         )
         return selected
 
-    readable_side = "sell" if side == "left" else "buy"
+    readable_sides = ",".join("sell" if candidate_side == "left" else "buy" for candidate_side in candidate_sides)
+    required_text = ", ".join(
+        f"{candidate_side}>={required_amount:.8f} {symbol}"
+        for candidate_side, (_, symbol, _, required_amount) in requirements.items()
+    )
     info(
-        f"no_fill: no bot has enough {symbol} for predicted {readable_side}; "
-        f"required>={required_amount:.8f} {symbol}, balances={balances}",
+        f"no_fill: no bot has enough balance for possible {readable_sides}; "
+        f"required={required_text}, balances={balances}",
         log_file,
     )
     return None
