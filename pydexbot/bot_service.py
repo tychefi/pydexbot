@@ -3,6 +3,7 @@ import yaml
 import argparse
 import time
 import random
+from decimal import Decimal
 from datetime import datetime, timezone
 from pyflonkit import eosapi as chainapi, wallet
 from pydexbot import utils
@@ -38,6 +39,7 @@ TRADE_PAIRS = config.get("trade_pairs", [])
 BOT_ADMIN = config.get("bot_admin")
 FEE_PAYER = config.get("fee_payer")
 BOT_MM_CONTRACT = config.get("bot_mm_contract", "bot.mm")
+DEX_CONTRACT = config.get("dex_contract", "flon.swap")
 
 TRADE_PERMISSION = config.get("trade_permission", "trade")
 
@@ -48,6 +50,8 @@ RETRY_MIN_INTERVAL_SECONDS = config.get("retry_min_interval_seconds", 10)
 RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 30)
 READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 8)
 VERBOSE = config.get("verbose", False)
+SIDE_SEGMENT_SECONDS = 14400
+EDGE_REVERSION_THRESHOLD = Decimal("0.92")
 
 def log_message(level, msg, log_file=None):
     line = f"[{level}] {msg}"
@@ -114,6 +118,153 @@ def parse_chain_time_seconds(value):
         except ValueError:
             continue
     return 0
+
+def parse_asset(value):
+    amount, symbol = str(value).strip().split()
+    return Decimal(amount), symbol
+
+def get_currency_balance(contract, account, symbol):
+    rows = chainapi.get_currency_balance(contract, account, symbol)
+    if not rows:
+        return Decimal("0")
+    amount, _ = parse_asset(rows[0])
+    return amount
+
+def get_single_table_row(code, scope, table, lower_bound):
+    resp = chainapi.get_table_rows(True, code, scope, table, lower_bound, lower_bound, 1)
+    if resp and resp.get("rows"):
+        return resp["rows"][0]
+    return None
+
+def get_swap_market(trade_pair):
+    row = get_single_table_row(DEX_CONTRACT, DEX_CONTRACT, "markets", trade_pair)
+    if row and row.get("tpcode") == trade_pair:
+        return row
+    return None
+
+def get_bot_market(trade_pair):
+    row = get_single_table_row(TOKENX_MM_CONTRACT, TOKENX_MM_CONTRACT, "botmarkets", trade_pair)
+    if row and row.get("trade_pair_name") == trade_pair:
+        return row
+    return None
+
+def mix32(value):
+    value &= 0xffffffff
+    value ^= value >> 16
+    value = (value * 0x7feb352d) & 0xffffffff
+    value ^= value >> 15
+    value = (value * 0x846ca68b) & 0xffffffff
+    value ^= value >> 16
+    return value & 0xffffffff
+
+def normalized_price_offset(left_price, target_price, fluctuation_ratio):
+    if target_price <= 0 or fluctuation_ratio <= 0:
+        return Decimal("0")
+    band_width = target_price * fluctuation_ratio
+    if band_width <= 0:
+        return Decimal("0")
+    offset = (left_price - target_price) / band_width
+    return max(Decimal("-1"), min(Decimal("1"), offset))
+
+def calc_left_inventory_bps(bot_market, left_price):
+    left_amount, _ = parse_asset(bot_market["left_pool"]["total_quantity"])
+    right_amount, _ = parse_asset(bot_market["right_pool"]["total_quantity"])
+    left_value = left_amount * left_price
+    total_value = left_value + right_amount
+    if total_value <= 0:
+        return 5000
+    return int(max(Decimal("0"), min(Decimal("10000"), left_value * Decimal("10000") / total_value)))
+
+def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
+    target_price = Decimal(str(market_config.get("target_price") or "0"))
+    fluctuation_ratio = Decimal(str(market_config.get("fluctuation_ratio") or "0"))
+    left_amount, _ = parse_asset(swap_market["left_pool_quant"]["quantity"])
+    right_amount, _ = parse_asset(swap_market["right_pool_quant"]["quantity"])
+    if left_amount <= 0 or right_amount <= 0:
+        return None
+
+    left_price = right_amount / left_amount
+    min_price = target_price * (Decimal("1") - fluctuation_ratio)
+    max_price = target_price * (Decimal("1") + fluctuation_ratio)
+    offset = normalized_price_offset(left_price, target_price, fluctuation_ratio)
+
+    if left_price < min_price:
+        side = "right"
+    elif left_price > max_price:
+        side = "left"
+    elif offset >= EDGE_REVERSION_THRESHOLD:
+        side = "left"
+    elif offset <= -EDGE_REVERSION_THRESHOLD:
+        side = "right"
+    else:
+        segment = int(time.time()) // SIDE_SEGMENT_SECONDS
+        seed = utils.name_to_number(trade_pair) & 0xffffffff
+        segment_rand = mix32(seed ^ ((segment * 2246822519) & 0xffffffff))
+        side = "left" if (segment_rand & 1) == 0 else "right"
+
+    left_inventory_bps = calc_left_inventory_bps(bot_market, left_price)
+    if left_inventory_bps < 1000 and Decimal(str(bot_market["right_pool"]["total_quantity"].split()[0])) > 0:
+        side = "right"
+    elif left_inventory_bps > 9000 and Decimal(str(bot_market["left_pool"]["total_quantity"].split()[0])) > 0:
+        side = "left"
+    return side
+
+def side_required_balance(side, market_config, swap_market, bot_market):
+    min_left_amount, _ = parse_asset(market_config["min_trade_amount"])
+    left_amount, _ = parse_asset(swap_market["left_pool_quant"]["quantity"])
+    right_amount, _ = parse_asset(swap_market["right_pool_quant"]["quantity"])
+    left_price = right_amount / left_amount
+
+    if side == "left":
+        pool = bot_market["left_pool"]
+        required_amount = min_left_amount
+    else:
+        pool = bot_market["right_pool"]
+        required_amount = min_left_amount * left_price
+
+    _, symbol = parse_asset(pool["balance"]["quantity"])
+    pool_balance, _ = parse_asset(pool["balance"]["quantity"])
+    return pool["balance"]["contract"], symbol, pool_balance, required_amount
+
+def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
+    swap_market = get_swap_market(trade_pair)
+    bot_market = get_bot_market(trade_pair)
+    if not market_config or not swap_market or not bot_market:
+        selected = random.choice(bots)
+        debug(f"Selected bot without market prefilter: {selected}", log_file)
+        return selected
+
+    side = predict_trade_side(trade_pair, market_config, swap_market, bot_market)
+    if side not in ("left", "right"):
+        selected = random.choice(bots)
+        debug(f"Selected bot without side prediction: {selected}", log_file)
+        return selected
+
+    contract, symbol, pool_balance, required_amount = side_required_balance(side, market_config, swap_market, bot_market)
+    eligible = []
+    balances = {}
+    for bot in bots:
+        balance = get_currency_balance(contract, bot, symbol)
+        balances[bot] = balance
+        if balance + pool_balance >= required_amount:
+            eligible.append(bot)
+
+    if eligible:
+        selected = random.choice(eligible)
+        debug(
+            f"Selected funded bot: {selected}, side={side}, symbol={symbol}, "
+            f"required={required_amount}, balances={balances}",
+            log_file,
+        )
+        return selected
+
+    readable_side = "sell" if side == "left" else "buy"
+    info(
+        f"no_fill: no bot has enough {symbol} for predicted {readable_side}; "
+        f"required>={required_amount:.8f} {symbol}, balances={balances}",
+        log_file,
+    )
+    return None
 
 def get_market_config(trade_pair):
     """
@@ -276,7 +427,10 @@ def run_pair_worker(trade_pair, stop_event):
                 error(f"No bots found in group {trade_pair}", log_file)
                 sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after missing bots")
                 continue
-            selected_bot = random.choice(bots)
+            selected_bot = choose_funded_bot(trade_pair, bots, market_config, log_file)
+            if not selected_bot:
+                sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after no funded bot")
+                continue
             debug(f"Selected bot: {selected_bot}", log_file)
 
             action_data = {"bot": selected_bot, "trade_pair_name": trade_pair, "memo": memo}
@@ -293,7 +447,7 @@ def run_pair_worker(trade_pair, stop_event):
                 for k, v in trade_info.items():
                     info(f"{k:<{max_key_len}} : {v}", log_file)
             else:
-                info("ERROR: No trade info found.", log_file)
+                info("no_fill: transaction accepted but no swap fill was emitted.", log_file)
             info("========== End Trade ==========" , log_file)
             sleep_with_jitter(stop_event, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS, log_file, "next trade")
         except Exception as e:
