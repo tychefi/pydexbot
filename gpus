@@ -1,0 +1,869 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+TODAY="$(TZ=Asia/Shanghai date +%F)"
+NOW="$(TZ=Asia/Shanghai date '+%H:%M:%S')"
+TARGET_BRANCH="dev"
+TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+
+trim_dotenv_value() {
+  local value="$1"
+  value="${value%$'\r'}"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+load_dotenv() {
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  local line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim_dotenv_value "$line")"
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" =~ ^export[[:space:]]+(.+)$ ]]; then
+      line="$(trim_dotenv_value "${BASH_REMATCH[1]}")"
+    fi
+    [[ "$line" == *"="* ]] || continue
+
+    key="$(trim_dotenv_value "${line%%=*}")"
+    value="$(trim_dotenv_value "${line#*=}")"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    # Shell environment wins over .env so one-off overrides stay possible.
+    if env | grep -q "^${key}="; then
+      continue
+    fi
+
+    if [[ ${#value} -ge 2 ]]; then
+      if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+        value="${value:1:${#value}-2}"
+      elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+    fi
+
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  done < "$ENV_FILE"
+}
+
+load_dotenv
+if [[ -n "${GPUS_BRANCH:-}" ]]; then
+  TARGET_BRANCH="$GPUS_BRANCH"
+  TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+fi
+
+PREFIX=""
+if [[ -n "${GPUS_PREFIX+x}" ]]; then
+  PREFIX="$GPUS_PREFIX"
+fi
+
+DSR_REPO=""
+if [[ -n "${GPUS_DSR_REPO+x}" ]]; then
+  DSR_REPO="$GPUS_DSR_REPO"
+fi
+
+DSR_ENABLED=0
+if [[ -n "$DSR_REPO" ]]; then
+  DSR_ENABLED=1
+  DSR_DIR="$ROOT_DIR/$DSR_REPO/DSR"
+  DSR_FILE="$DSR_DIR/$TODAY-daily-status-report.md"
+fi
+
+export PAGER=cat
+export GIT_PAGER=cat
+export LESS=FRX
+export GIT_TERMINAL_PROMPT="${GIT_TERMINAL_PROMPT:-0}"
+export GIT_ASKPASS="${GIT_ASKPASS:-/bin/false}"
+export SSH_ASKPASS="${SSH_ASKPASS:-/bin/false}"
+GPUS_GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes -o NumberOfPasswordPrompts=0}"
+
+git() {
+  command git --no-pager "$@"
+}
+
+case "${GPUS_AUTO_CONFIRM:-1}" in
+  0|false|FALSE|no|NO|n|N|off|OFF) YES=0 ;;
+  *) YES=1 ;;
+esac
+DRY_RUN=0
+case "${GPUS_PUSH:-1}" in
+  1|true|TRUE|yes|YES|y|Y|on|ON) PUSH=1 ;;
+  *) PUSH=0 ;;
+esac
+VALIDATE=1
+RUN_TESTS=0
+NOTE="${GPUS_DSR_NOTE:-}"
+COMMIT_MESSAGE=""
+LLM_MESSAGE="${GPUS_LLM_MESSAGE:-0}"
+LLM_MAX_DIFF_CHARS="${GPUS_LLM_MAX_DIFF_CHARS:-12000}"
+TARGET_REPOS=()
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./gpus [options] [repo ...]
+
+Options:
+  -y, --yes              Skip confirmation prompt.
+      --confirm          Require confirmation prompt before writing.
+      --dry-run          Show what would happen, but do not write, commit, or push.
+      --push             Push committed repos to origin/<branch>.
+      --no-push          Commit locally but do not push.
+      --no-validate      Skip git diff --check validation.
+      --run-tests        Also run lightweight build/script checks when local tools exist.
+      --llm-message      Generate commit message from local diffs with an LLM.
+  -m, --message TEXT     Git commit message. Default: chore: gpus submit YYYY-MM-DD
+  -h, --help             Show this help.
+
+Repo filter:
+  Optional repo names restrict the submit sweep to those top-level repos.
+  Prefix filtering is optional and configured with GPUS_PREFIX.
+  GPUS_PREFIX may include or omit a trailing hyphen.
+  By default, no prefix is required. If no child git repos exist, the current
+  repo is selected.
+  Multiple repos are supported. Paths are normalized to their basename.
+
+DSR note:
+  GPUS_DSR_REPO enables DSR updates. It is optional in no-prefix workspaces.
+  GPUS_DSR_NOTE in .env is optional supplemental context for the DSR.
+  The DSR section is generated after commits are created, based on the latest
+  commit logs and commit stats from this submit run.
+  GPUS_AUTO_CONFIRM=1 skips the final confirmation prompt.
+  GPUS_PUSH=1 pushes committed repos by default; set 0 for local-only.
+
+Branch safety:
+  Selected repos must already be on the target branch and track origin/<branch>.
+  The target branch defaults to dev, except single current-repo mode uses the
+  current branch. Override with GPUS_BRANCH.
+  If GPUS_DSR_REPO is set, that repo is also checked and updated.
+  The push phase always pushes origin/<branch> explicitly.
+
+LLM commit message:
+  --llm-message or GPUS_LLM_MESSAGE=1 enables LLM generation.
+  The workspace .env file is loaded before these defaults are resolved.
+  -m/--message always wins over the LLM.
+  Custom command: GPUS_COMMIT_MESSAGE_CMD receives the prompt on stdin.
+  OpenAI-compatible envs: GPUS_LLM_BASE_URL, GPUS_LLM_API_KEY, GPUS_LLM_MODEL.
+  OPENAI_API_KEY is also used as a fallback.
+
+Examples:
+  ./gpus
+  ./gpus swapmm
+  GPUS_PREFIX=contract ./gpus
+  ./gpus --llm-message
+  ./gpus --no-push
+  GPUS_PUSH=0 ./gpus
+  ./gpus --confirm
+  ./gpus --dry-run
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -y|--yes)
+      YES=1
+      shift
+      ;;
+    --confirm)
+      YES=0
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      PUSH=0
+      shift
+      ;;
+    --push)
+      PUSH=1
+      shift
+      ;;
+    --no-push)
+      PUSH=0
+      shift
+      ;;
+    --no-validate)
+      VALIDATE=0
+      shift
+      ;;
+    --run-tests)
+      RUN_TESTS=1
+      shift
+      ;;
+    --llm-message)
+      LLM_MESSAGE=1
+      shift
+      ;;
+    -m|--message)
+      COMMIT_MESSAGE="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        TARGET_REPOS+=("$(basename "$1")")
+        shift
+      done
+      ;;
+    -*)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      TARGET_REPOS+=("$(basename "$1")")
+      shift
+      ;;
+  esac
+done
+
+if [[ "$DSR_ENABLED" -eq 1 && ! -d "$ROOT_DIR/$DSR_REPO/.git" ]]; then
+  echo "Missing DSR repo: $ROOT_DIR/$DSR_REPO" >&2
+  exit 1
+fi
+
+repos=()
+find_pattern="*"
+if [[ -n "$PREFIX" ]]; then
+  find_pattern="${PREFIX%-}-*"
+  if [[ "$PREFIX" == *- ]]; then
+    find_pattern="${PREFIX}*"
+  fi
+fi
+while IFS= read -r repo_path; do
+  [[ -d "$repo_path/.git" ]] || continue
+  repos+=("$(basename "$repo_path")")
+done < <(find "$ROOT_DIR" -mindepth 1 -maxdepth 1 -type d -name "$find_pattern" | sort)
+
+if [[ ${#repos[@]} -eq 0 && -z "$PREFIX" && -d "$ROOT_DIR/.git" ]]; then
+  repos=(".")
+fi
+
+if [[ ${#repos[@]} -eq 1 && "${repos[0]}" == "." && -z "${GPUS_BRANCH:-}" ]]; then
+  current_root_branch="$(git -C "$ROOT_DIR" branch --show-current)"
+  if [[ -n "$current_root_branch" ]]; then
+    TARGET_BRANCH="$current_root_branch"
+    TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+  fi
+fi
+
+if [[ ${#repos[@]} -eq 0 ]]; then
+  if [[ -n "$PREFIX" ]]; then
+    echo "No ${find_pattern} git repos found under $ROOT_DIR" >&2
+  else
+    echo "No top-level git repos found under $ROOT_DIR" >&2
+  fi
+  exit 1
+fi
+
+contains_repo() {
+  local needle="$1"
+  shift
+  local item
+  for item in "$@"; do
+    [[ "$item" == "$needle" ]] && return 0
+  done
+  return 1
+}
+
+selected_repos=("${repos[@]}")
+if [[ ${#TARGET_REPOS[@]} -gt 0 ]]; then
+  selected_repos=()
+  for target_repo in "${TARGET_REPOS[@]}"; do
+    if contains_repo "$target_repo" "${repos[@]}"; then
+      if [[ ${#selected_repos[@]} -eq 0 ]] || ! contains_repo "$target_repo" "${selected_repos[@]}"; then
+        selected_repos+=("$target_repo")
+      fi
+    else
+      echo "[gpus] ERROR: repo '$target_repo' was not found under $ROOT_DIR." >&2
+      echo "[gpus] available repos: ${repos[*]}" >&2
+      exit 2
+    fi
+  done
+fi
+
+branch_check_repos=("${selected_repos[@]}")
+if [[ "$DSR_ENABLED" -eq 1 ]] && ! contains_repo "$DSR_REPO" "${branch_check_repos[@]}"; then
+  branch_check_repos+=("$DSR_REPO")
+fi
+
+repo_path() {
+  if [[ "$1" == "." ]]; then
+    printf '%s' "$ROOT_DIR"
+  else
+    printf '%s/%s' "$ROOT_DIR" "$1"
+  fi
+}
+
+repo_status() {
+  git -C "$(repo_path "$1")" status --short --branch
+}
+
+repo_current_branch() {
+  git -C "$(repo_path "$1")" branch --show-current
+}
+
+repo_upstream() {
+  git -C "$(repo_path "$1")" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true
+}
+
+repo_dirty() {
+  [[ -n "$(git -C "$(repo_path "$1")" status --porcelain)" ]]
+}
+
+repo_ahead_count() {
+  local upstream
+  upstream="$(repo_upstream "$1")"
+  [[ -n "$upstream" ]] || {
+    echo 0
+    return
+  }
+  git -C "$(repo_path "$1")" rev-list --count "$upstream"..HEAD 2>/dev/null || echo 0
+}
+
+repo_changed_files() {
+  {
+    git -C "$(repo_path "$1")" diff --name-only
+    git -C "$(repo_path "$1")" diff --cached --name-only
+    git -C "$(repo_path "$1")" ls-files --others --exclude-standard
+  } | sed '/^$/d' | sort -u
+}
+
+is_truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|y|Y|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+sanitize_commit_message() {
+  printf '%s\n' "$1" \
+    | tr -d '\r' \
+    | sed -n "/[^[:space:]]/{
+      s/^[[:space:]]*//
+      s/[[:space:]]*$//
+      s/^[\"'\`]//
+      s/[\"'\`]$//
+      s/[[:space:]][[:space:]]*/ /g
+      p
+      q
+    }" \
+    | cut -c 1-120
+}
+
+build_commit_message_prompt() {
+  local repo files diff_budget
+  diff_budget="$LLM_MAX_DIFF_CHARS"
+
+  cat <<EOF
+You are generating one git commit message for a multi-repo submit.
+
+Rules:
+- Return exactly one commit subject line.
+- Use Conventional Commits style, for example: fix: validate contract trade parameters
+- Prefer concise Chinese if the changed code or note is Chinese.
+- Keep it under 72 characters when possible.
+- Do not use markdown, quotes, bullets, or explanations.
+- Summarize the actual staged/worktree changes below.
+
+Workspace: $ROOT_DIR
+Changed repos: ${dirty_repos[*]}
+User note: ${NOTE:-}
+
+EOF
+
+  for repo in "${dirty_repos[@]}"; do
+    repo_dir="$(repo_path "$repo")"
+    echo "## $repo"
+    echo
+    echo "### status"
+    git -C "$repo_dir" status --short
+    echo
+    echo "### files"
+    files="$(repo_changed_files "$repo")"
+    if [[ -n "$files" ]]; then
+      echo "$files"
+    else
+      echo "(none)"
+    fi
+    echo
+    echo "### diff stat"
+    git -C "$repo_dir" diff --stat || true
+    git -C "$repo_dir" diff --cached --stat || true
+    echo
+    echo "### diff excerpt"
+    {
+      git -C "$repo_dir" diff --no-ext-diff --unified=3 || true
+      git -C "$repo_dir" diff --cached --no-ext-diff --unified=3 || true
+    } | head -c "$diff_budget" || true
+    echo
+    echo
+  done
+}
+
+llm_commit_message_from_command() {
+  local prompt_file raw
+  prompt_file="$1"
+  [[ -n "${GPUS_COMMIT_MESSAGE_CMD:-}" ]] || return 1
+  raw="$(bash -c "$GPUS_COMMIT_MESSAGE_CMD" < "$prompt_file" 2>/dev/null || true)"
+  sanitize_commit_message "$raw"
+}
+
+llm_commit_message_from_chat_completions() {
+  local prompt_file
+  prompt_file="$1"
+
+  command -v python3 >/dev/null 2>&1 || return 1
+
+  python3 - "$prompt_file" <<'PY'
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+prompt_path = sys.argv[1]
+base_url = (
+    os.getenv("GPUS_LLM_BASE_URL")
+    or ("https://api.openai.com/v1/chat/completions" if os.getenv("OPENAI_API_KEY") else "")
+)
+api_key = (
+    os.getenv("GPUS_LLM_API_KEY")
+    or os.getenv("OPENAI_API_KEY")
+    or ""
+)
+model = (
+    os.getenv("GPUS_LLM_MODEL")
+    or ("gpt-4.1-mini" if os.getenv("OPENAI_API_KEY") else "")
+)
+
+if not base_url or not api_key or not model:
+    sys.exit(2)
+
+base_url = base_url.rstrip("/")
+if not base_url.endswith("/chat/completions"):
+    base_url = f"{base_url}/chat/completions"
+
+with open(prompt_path, "r", encoding="utf-8") as f:
+    prompt = f.read()
+
+payload = {
+    "model": model,
+    "temperature": 0.2,
+    "max_tokens": 80,
+    "messages": [
+        {
+            "role": "system",
+            "content": "Return exactly one concise git commit subject line. No markdown.",
+        },
+        {"role": "user", "content": prompt},
+    ],
+}
+
+request = urllib.request.Request(
+    base_url,
+    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+    headers={
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+
+try:
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.loads(response.read().decode("utf-8"))
+except (OSError, urllib.error.HTTPError, json.JSONDecodeError):
+    sys.exit(1)
+
+choices = data.get("choices") or []
+if not choices:
+    sys.exit(1)
+
+message = choices[0].get("message") or {}
+content = message.get("content") or choices[0].get("text") or ""
+print(str(content).strip())
+PY
+}
+
+generate_llm_commit_message() {
+  local prompt_file generated
+  prompt_file="$(mktemp "${TMPDIR:-/tmp}/gpus-commit-message.XXXXXX")"
+  build_commit_message_prompt > "$prompt_file"
+
+  generated="$(llm_commit_message_from_command "$prompt_file" || true)"
+  if [[ -z "$generated" ]]; then
+    generated="$(llm_commit_message_from_chat_completions "$prompt_file" || true)"
+    generated="$(sanitize_commit_message "$generated")"
+  fi
+
+  rm -f "$prompt_file"
+  printf '%s\n' "$generated"
+}
+
+commit_subject() {
+  local repo commit_hash
+  repo="$1"
+  commit_hash="$2"
+  git -C "$(repo_path "$repo")" log -1 --pretty=%s "$commit_hash"
+}
+
+commit_file_summary() {
+  local repo commit_hash
+  repo="$1"
+  commit_hash="$2"
+  git -C "$(repo_path "$repo")" show --name-only --pretty='' "$commit_hash" \
+    | sed '/^$/d' \
+    | head -8 \
+    | paste -sd '、' -
+}
+
+commit_body_summary() {
+  local repo commit_hash
+  repo="$1"
+  commit_hash="$2"
+  git -C "$(repo_path "$repo")" show --stat --oneline --no-renames "$commit_hash" \
+    | sed -n '2,8p' \
+    | sed 's/^[[:space:]]*//'
+}
+
+classify_commit_summary() {
+  local repo subject files text
+  repo="$1"
+  subject="$2"
+  files="$3"
+  text="$(printf '%s %s %s' "$repo" "$subject" "$files")"
+
+  if [[ "$text" == *"contracts/"* || "$text" == *".cpp"* || "$text" == *".hpp"* || "$text" == *"contract"* || "$text" == *"合约"* ]]; then
+    echo "智能合约"
+  elif [[ "$text" == *"CMakeLists.txt"* || "$text" == *"build"* || "$text" == *"scripts/"* || "$text" == *"CMake"* ]]; then
+    echo "构建与脚本"
+  elif [[ "$text" == *"tests/"* || "$text" == *"test"* || "$text" == *"测试"* ]]; then
+    echo "测试与验证"
+  elif [[ "$text" == *"DSR"* || "$repo" == "$DSR_REPO" ]]; then
+    echo "项目文档"
+  elif [[ "$text" == *"docs/"* || "$text" == *".md"* || "$text" == *"文档"* ]]; then
+    echo "项目文档"
+  else
+    echo "工程维护"
+  fi
+}
+
+build_dsr_section_from_commits() {
+  local section_file repo commit_hash subject files category stats i
+  section_file="$1"
+
+  {
+    echo
+    echo "### $NOW 提交内容综合总结"
+    echo
+    if [[ -n "$NOTE" ]]; then
+      echo "- 补充说明：$NOTE"
+      echo
+    fi
+    echo "本次 DSR 根据本轮提交完成后的最新 commit log 综合整理，不记录提交流程操作日志。"
+    echo
+    echo "#### 主要变更"
+    for i in "${!committed_repos[@]}"; do
+      repo="${committed_repos[$i]}"
+      commit_hash="${committed_hashes[$i]:-}"
+      [[ -n "$commit_hash" ]] || continue
+      subject="$(commit_subject "$repo" "$commit_hash")"
+      files="$(commit_file_summary "$repo" "$commit_hash")"
+      category="$(classify_commit_summary "$repo" "$subject" "$files")"
+      echo
+      echo "- **$category / \`$repo\`**"
+      echo "  - commit：\`${commit_hash:0:12}\` $subject"
+      stats="$(commit_body_summary "$repo" "$commit_hash")"
+      if [[ -n "$stats" ]]; then
+        while IFS= read -r line; do
+          [[ -n "$line" ]] && echo "  - $line"
+        done <<< "$stats"
+      fi
+    done
+    echo
+    echo "#### 验证情况"
+    if [[ "$VALIDATE" -eq 1 ]]; then
+      echo "- 已对本轮变更仓库执行 \`git diff --check\`。"
+    else
+      echo "- 本轮按参数跳过 \`git diff --check\`。"
+    fi
+    if [[ "$RUN_TESTS" -eq 1 ]]; then
+      echo "- 已按本地工具可用性执行 CMake 构建或 shell 语法检查。"
+    else
+      echo "- 未由 \`gpus\` 执行本地构建或脚本检查；以提交前已完成的人工或环境验证为准。"
+    fi
+    echo
+    echo "#### 涉及仓库"
+    for repo in "${committed_repos[@]}"; do
+      echo "- \`$repo\`"
+    done
+  } > "$section_file"
+}
+
+echo "[gpus] branch safety: require $TARGET_BRANCH -> $TARGET_UPSTREAM"
+branch_errors=0
+for repo in "${branch_check_repos[@]}"; do
+  current_branch="$(repo_current_branch "$repo")"
+  upstream_branch="$(repo_upstream "$repo")"
+
+  if [[ "$current_branch" != "$TARGET_BRANCH" ]]; then
+    echo "[gpus] ERROR: $repo is on '${current_branch:-detached}', expected '$TARGET_BRANCH'." >&2
+    branch_errors=1
+    continue
+  fi
+
+  if [[ "$upstream_branch" != "$TARGET_UPSTREAM" ]]; then
+    echo "[gpus] ERROR: $repo upstream is '${upstream_branch:-unset}', expected '$TARGET_UPSTREAM'." >&2
+    branch_errors=1
+  fi
+done
+
+if [[ "$branch_errors" -ne 0 ]]; then
+  echo "[gpus] abort: fix branch/upstream state before submitting." >&2
+  exit 1
+fi
+
+echo "[gpus] workspace: $ROOT_DIR"
+if [[ ${#TARGET_REPOS[@]} -gt 0 ]]; then
+  echo "[gpus] target repos: ${selected_repos[*]}"
+fi
+echo "[gpus] scanning repos with local changes or ahead commits"
+
+dirty_repos=()
+ahead_repos=()
+for repo in "${selected_repos[@]}"; do
+  repo_has_changes=0
+  repo_has_ahead=0
+
+  if repo_dirty "$repo"; then
+    repo_has_changes=1
+    dirty_repos+=("$repo")
+  fi
+
+  ahead_count="$(repo_ahead_count "$repo")"
+  if [[ "$ahead_count" =~ ^[0-9]+$ && "$ahead_count" -gt 0 ]]; then
+    repo_has_ahead=1
+    ahead_repos+=("$repo")
+  fi
+
+  if [[ "$repo_has_changes" -eq 1 || "$repo_has_ahead" -eq 1 ]]; then
+    echo
+    echo "== $repo =="
+    repo_status "$repo"
+  fi
+done
+
+if [[ ${#dirty_repos[@]} -eq 0 ]]; then
+  if [[ ${#ahead_repos[@]} -gt 0 ]]; then
+    echo
+    echo "[gpus] local commits ahead of upstream: ${ahead_repos[*]}"
+    if [[ "$PUSH" -eq 1 ]]; then
+      echo
+      echo "[gpus] push phase"
+      for repo in "${ahead_repos[@]}"; do
+        echo
+        echo "== $repo =="
+        GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$GPUS_GIT_SSH_COMMAND" git -C "$(repo_path "$repo")" push origin "$TARGET_BRANCH"
+      done
+      echo
+      echo "[gpus] final status for pushed repos"
+      for repo in "${ahead_repos[@]}"; do
+        echo
+        echo "== $repo =="
+        repo_status "$repo"
+      done
+      echo
+      echo "[gpus] complete. Pushed ahead repos: ${ahead_repos[*]}"
+    else
+      echo "[gpus] push disabled; ahead commits were not pushed."
+    fi
+    exit 0
+  fi
+  echo "[gpus] no changed repos; DSR, commit, and push skipped."
+  exit 0
+fi
+
+if [[ "$VALIDATE" -eq 1 ]]; then
+  echo
+  echo "[gpus] validation: git diff --check"
+  for repo in "${dirty_repos[@]}"; do
+    echo "== $repo =="
+    git -C "$(repo_path "$repo")" diff --check
+  done
+fi
+
+if [[ "$RUN_TESTS" -eq 1 ]]; then
+  echo
+  echo "[gpus] optional local checks"
+  for repo in "${dirty_repos[@]}"; do
+    repo_dir="$(repo_path "$repo")"
+    files="$(repo_changed_files "$repo")"
+    if echo "$files" | grep -Eq '(^|/)(CMakeLists\.txt|build\.sh)$|^contracts/|^version/'; then
+      if [[ -x "$repo_dir/build.sh" ]]; then
+        echo "== $repo: ./build.sh -y =="
+        (cd "$repo_dir" && CMAKE_OPTIONS="${CMAKE_OPTIONS:-}" CMAKE_PREFIX_PATH="${CMAKE_PREFIX_PATH:-}" MAKE_TARGET="${MAKE_TARGET:-}" ./build.sh -y)
+      elif [[ -f "$repo_dir/CMakeLists.txt" ]] && command -v cmake >/dev/null 2>&1; then
+        echo "== $repo: cmake --build build =="
+        (cd "$repo_dir" && cmake --build build)
+      fi
+    fi
+    while IFS= read -r file; do
+      [[ -f "$repo_dir/$file" ]] || continue
+      if [[ "$file" == *.sh ]] || head -n 1 "$repo_dir/$file" | grep -Eq '^#!.*bash'; then
+        echo "== $repo: bash -n $file =="
+        bash -n "$repo_dir/$file"
+      fi
+    done <<< "$files"
+  done
+fi
+
+if [[ -z "$COMMIT_MESSAGE" ]] && is_truthy "$LLM_MESSAGE"; then
+  echo
+  echo "[gpus] commit message: generating with LLM"
+  generated_message="$(generate_llm_commit_message || true)"
+  if [[ -n "$generated_message" ]]; then
+    COMMIT_MESSAGE="$generated_message"
+  else
+    echo "[gpus] WARN: LLM commit message unavailable; falling back to default." >&2
+  fi
+fi
+
+if [[ -z "$COMMIT_MESSAGE" ]]; then
+  COMMIT_MESSAGE="chore: gpus submit $TODAY"
+fi
+
+echo
+echo "[gpus] commit message: $COMMIT_MESSAGE"
+if [[ "$PUSH" -eq 1 ]]; then
+  echo "[gpus] push: enabled"
+else
+  echo "[gpus] push: disabled"
+fi
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo
+  echo "[gpus] dry-run complete; no files changed."
+  exit 0
+fi
+
+if [[ "$YES" -ne 1 ]]; then
+  if [[ -t 0 ]]; then
+    echo
+    if [[ "$PUSH" -eq 1 ]]; then
+      prompt_action="commit and push"
+    else
+      prompt_action="commit"
+    fi
+    if [[ "$DSR_ENABLED" -eq 1 ]]; then
+      prompt_action="$prompt_action, then generate DSR from commit logs"
+    fi
+    read -r -p "Proceed with $prompt_action? [y/N] " answer
+    case "$answer" in
+      y|Y|yes|YES) ;;
+      *)
+        echo "[gpus] aborted."
+        exit 1
+        ;;
+    esac
+  else
+    echo "[gpus] non-interactive run requires GPUS_AUTO_CONFIRM=1 or --yes." >&2
+    exit 1
+  fi
+fi
+
+repos_to_commit=("${dirty_repos[@]}")
+
+echo
+echo "[gpus] commit phase"
+committed_repos=()
+committed_hashes=()
+for repo in "${repos_to_commit[@]}"; do
+  if ! repo_dirty "$repo"; then
+    continue
+  fi
+  repo_dir="$(repo_path "$repo")"
+  echo
+  echo "== $repo =="
+  git -C "$repo_dir" add -A
+  if git -C "$repo_dir" diff --cached --quiet; then
+    echo "[gpus] no staged changes after add; skipped."
+    continue
+  fi
+  GIT_EDITOR=: git -C "$repo_dir" -c commit.gpgsign=false commit -m "$COMMIT_MESSAGE"
+  committed_repos+=("$repo")
+  committed_hashes+=("$(git -C "$repo_dir" rev-parse HEAD)")
+done
+
+if [[ ${#committed_repos[@]} -eq 0 ]]; then
+  echo "[gpus] no commits were created."
+  exit 0
+fi
+
+if [[ "$PUSH" -eq 1 ]]; then
+  echo
+  echo "[gpus] push phase"
+  for repo in "${committed_repos[@]}"; do
+    echo
+    echo "== $repo =="
+    GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$GPUS_GIT_SSH_COMMAND" git -C "$(repo_path "$repo")" push origin "$TARGET_BRANCH"
+  done
+fi
+
+if [[ "$DSR_ENABLED" -eq 1 ]]; then
+  section_file="$(mktemp "${TMPDIR:-/tmp}/gpus-dsr.XXXXXX")"
+  build_dsr_section_from_commits "$section_file"
+
+  mkdir -p "$DSR_DIR"
+  if [[ ! -f "$DSR_FILE" ]]; then
+    {
+      echo "# $TODAY Daily Status Report"
+      echo
+      echo "## 今日完成"
+    } > "$DSR_FILE"
+  fi
+  cat "$section_file" >> "$DSR_FILE"
+  rm -f "$section_file"
+
+  echo
+  echo "[gpus] DSR generated from commit logs -> $DSR_FILE"
+  if repo_dirty "$DSR_REPO"; then
+    dsr_repo_dir="$(repo_path "$DSR_REPO")"
+    echo
+    echo "== $DSR_REPO =="
+    git -C "$dsr_repo_dir" add -A
+    if ! git -C "$dsr_repo_dir" diff --cached --quiet; then
+      GIT_EDITOR=: git -C "$dsr_repo_dir" -c commit.gpgsign=false commit -m "docs: update daily status report $TODAY"
+      dsr_commit_hash="$(git -C "$dsr_repo_dir" rev-parse HEAD)"
+      committed_repos+=("$DSR_REPO")
+      committed_hashes+=("$dsr_commit_hash")
+      if [[ "$PUSH" -eq 1 ]]; then
+        GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="$GPUS_GIT_SSH_COMMAND" git -C "$dsr_repo_dir" push origin "$TARGET_BRANCH"
+      fi
+    else
+      echo "[gpus] no staged DSR changes after add; skipped."
+    fi
+  fi
+else
+  echo
+  echo "[gpus] DSR disabled; set GPUS_DSR_REPO to enable DSR updates."
+fi
+
+echo
+echo "[gpus] final status for committed repos"
+for repo in "${committed_repos[@]}"; do
+  echo
+  echo "== $repo =="
+  repo_status "$repo"
+done
+
+echo
+echo "[gpus] complete. Committed repos: ${committed_repos[*]}"

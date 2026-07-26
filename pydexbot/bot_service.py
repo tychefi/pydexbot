@@ -74,6 +74,15 @@ def info(msg, log_file=None):
 def error(msg, log_file=None):
     log_message("ERROR", msg, log_file)
 
+def format_no_fill_message(exc):
+    text = str(exc)
+    marker = "no fill:"
+    idx = text.lower().find(marker)
+    if idx < 0:
+        return None
+    line = text[idx:].splitlines()[0].strip()
+    return line.rstrip('",')
+
 def normalize_interval(min_seconds, max_seconds):
     min_seconds = float(min_seconds or 1)
     max_seconds = float(max_seconds or min_seconds)
@@ -124,11 +133,12 @@ def parse_asset(value):
     return Decimal(amount), symbol
 
 def get_currency_balance(contract, account, symbol):
-    rows = chainapi.get_currency_balance(contract, account, symbol)
-    if not rows:
-        return Decimal("0")
-    amount, _ = parse_asset(rows[0])
-    return amount
+    resp = chainapi.get_table_rows(True, contract, account, "accounts", symbol, symbol, 1)
+    for row in resp.get("rows", []):
+        amount, row_symbol = parse_asset(row["balance"])
+        if row_symbol == symbol:
+            return amount
+    return Decimal("0")
 
 def get_single_table_row(code, scope, table, lower_bound):
     resp = chainapi.get_table_rows(True, code, scope, table, lower_bound, lower_bound, 1)
@@ -451,7 +461,11 @@ def run_pair_worker(trade_pair, stop_event):
             info("========== End Trade ==========" , log_file)
             sleep_with_jitter(stop_event, MIN_INTERVAL_SECONDS, MAX_INTERVAL_SECONDS, log_file, "next trade")
         except Exception as e:
-            error(f"trade failed for {trade_pair}: {e}", log_file)
+            no_fill_message = format_no_fill_message(e)
+            if no_fill_message:
+                info(no_fill_message, log_file)
+            else:
+                error(f"trade failed for {trade_pair}: {e}", log_file)
             sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after failure")
 
 def run_bot_service():

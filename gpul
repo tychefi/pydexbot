@@ -1,0 +1,229 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$ROOT_DIR/.env"
+TARGET_BRANCH="${GPUL_BRANCH:-dev}"
+TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+DRY_RUN=0
+ALLOW_DIRTY=0
+BRANCH_SET=0
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./gpul [options]
+
+Options:
+      --branch NAME      Pull this branch. Default: dev.
+      --allow-dirty      Pull even when a repo has local uncommitted changes.
+      --dry-run          Show what would be pulled, but do not run git pull.
+  -h, --help             Show this help.
+
+Behavior:
+  Finds top-level git repos by prefix, configurable via GPUL_PREFIX.
+  Prefix may include or omit a trailing hyphen.
+  By default, no prefix is required and all top-level git repos are matched.
+  If no child git repos exist, the current repo is selected.
+  Requires each repo to be on the target branch and track origin/<branch>.
+  In single current-repo mode, the default target branch is the current branch.
+  Uses git pull --ff-only so no merge commit is created.
+  Dirty repos are skipped unless --allow-dirty is set.
+EOF
+}
+
+trim_dotenv_value() {
+  local value="$1"
+  value="${value%$'\r'}"
+  value="${value#"${value%%*[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+load_dotenv() {
+  [[ -f "$ENV_FILE" ]] || return 0
+
+  local line key value
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="$(trim_dotenv_value "$line")"
+    [[ -z "$line" || "${line:0:1}" == "#" ]] && continue
+
+    if [[ "$line" =~ ^export[[:space:]]+(.+)$ ]]; then
+      line="$(trim_dotenv_value "${BASH_REMATCH[1]}")"
+    fi
+    [[ "$line" == *"="* ]] || continue
+
+    key="$(trim_dotenv_value "${line%%=*}")"
+    value="$(trim_dotenv_value "${line#*=}")"
+    [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+
+    if env | grep -q "^${key}="; then
+      continue
+    fi
+
+    if [[ ${#value} -ge 2 ]]; then
+      if [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; then
+        value="${value:1:${#value}-2}"
+      elif [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]]; then
+        value="${value:1:${#value}-2}"
+      fi
+    fi
+
+    printf -v "$key" '%s' "$value"
+    export "$key"
+  done < "$ENV_FILE"
+}
+
+load_dotenv
+PREFIX=""
+PREFIX_SOURCE="default"
+if [[ -n "${GPUL_PREFIX+x}" ]]; then
+  PREFIX="$GPUL_PREFIX"
+  PREFIX_SOURCE="env"
+fi
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --branch)
+      TARGET_BRANCH="${2:-}"
+      [[ -n "$TARGET_BRANCH" ]] || {
+        echo "Missing branch name after --branch" >&2
+        exit 2
+      }
+      TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+      BRANCH_SET=1
+      shift 2
+      ;;
+    --allow-dirty)
+      ALLOW_DIRTY=1
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+repos=()
+find_pattern="*"
+if [[ -n "$PREFIX" ]]; then
+  find_pattern="${PREFIX%-}-*"
+  if [[ "$PREFIX" == *- ]]; then
+    find_pattern="${PREFIX}*"
+  fi
+fi
+while IFS= read -r repo_path; do
+  [[ -d "$repo_path/.git" ]] || continue
+  repos+=("$(basename "$repo_path")")
+done < <(find "$ROOT_DIR" -mindepth 1 -maxdepth 1 -type d -name "$find_pattern" | sort)
+
+if [[ ${#repos[@]} -eq 0 && -z "$PREFIX" && -d "$ROOT_DIR/.git" ]]; then
+  repos=(".")
+fi
+
+if [[ ${#repos[@]} -eq 0 ]]; then
+  if [[ -n "$PREFIX" ]]; then
+    echo "No ${find_pattern} git repos found under $ROOT_DIR" >&2
+  else
+    echo "No top-level git repos found under $ROOT_DIR" >&2
+  fi
+  exit 1
+fi
+
+if [[ ${#repos[@]} -eq 1 && "${repos[0]}" == "." && -z "${GPUL_BRANCH:-}" && "$BRANCH_SET" -eq 0 ]]; then
+  current_root_branch="$(git -C "$ROOT_DIR" branch --show-current)"
+  if [[ -n "$current_root_branch" ]]; then
+    TARGET_BRANCH="$current_root_branch"
+    TARGET_UPSTREAM="origin/$TARGET_BRANCH"
+  fi
+fi
+
+repo_path() {
+  if [[ "$1" == "." ]]; then
+    printf '%s' "$ROOT_DIR"
+  else
+    printf '%s/%s' "$ROOT_DIR" "$1"
+  fi
+}
+
+repo_current_branch() {
+  git -C "$(repo_path "$1")" branch --show-current
+}
+
+repo_upstream() {
+  git -C "$(repo_path "$1")" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null || true
+}
+
+repo_dirty() {
+  [[ -n "$(git -C "$(repo_path "$1")" status --porcelain)" ]]
+}
+
+echo "[gpul] workspace: $ROOT_DIR"
+echo "[gpul] target: $TARGET_BRANCH -> $TARGET_UPSTREAM"
+
+pulled_repos=()
+skipped_repos=()
+failed_repos=()
+
+for repo in "${repos[@]}"; do
+  current_branch="$(repo_current_branch "$repo")"
+  upstream_branch="$(repo_upstream "$repo")"
+
+  if [[ "$current_branch" != "$TARGET_BRANCH" ]]; then
+    echo
+    echo "== $repo =="
+    echo "[gpul] skip: current branch is '${current_branch:-detached}', expected '$TARGET_BRANCH'."
+    skipped_repos+=("$repo")
+    continue
+  fi
+
+  if [[ "$upstream_branch" != "$TARGET_UPSTREAM" ]]; then
+    echo
+    echo "== $repo =="
+    echo "[gpul] skip: upstream is '${upstream_branch:-unset}', expected '$TARGET_UPSTREAM'."
+    skipped_repos+=("$repo")
+    continue
+  fi
+
+  if [[ "$ALLOW_DIRTY" -ne 1 ]] && repo_dirty "$repo"; then
+    echo
+    echo "== $repo =="
+    echo "[gpul] skip: local working tree has uncommitted changes."
+    git -C "$(repo_path "$repo")" status --short
+    skipped_repos+=("$repo")
+    continue
+  fi
+
+  echo
+  echo "== $repo =="
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    git -C "$(repo_path "$repo")" fetch --dry-run --prune origin "$TARGET_BRANCH" || failed_repos+=("$repo")
+    continue
+  fi
+
+  if git -C "$(repo_path "$repo")" pull --ff-only --prune origin "$TARGET_BRANCH"; then
+    pulled_repos+=("$repo")
+  else
+    failed_repos+=("$repo")
+  fi
+done
+
+echo
+echo "[gpul] complete"
+[[ ${#pulled_repos[@]} -eq 0 ]] || echo "[gpul] pulled: ${pulled_repos[*]}"
+[[ ${#skipped_repos[@]} -eq 0 ]] || echo "[gpul] skipped: ${skipped_repos[*]}"
+[[ ${#failed_repos[@]} -eq 0 ]] || echo "[gpul] failed: ${failed_repos[*]}"
+
+if [[ ${#failed_repos[@]} -gt 0 || ${#skipped_repos[@]} -gt 0 ]]; then
+  exit 1
+fi
