@@ -236,13 +236,13 @@ def parse_price_from_result(trx):
                     price = out_amount / in_amount if in_amount > 0 else 0
                     price_reverted = in_amount / out_amount if out_amount > 0 else 0
                     if side == "left":
-                        result["trade_side"] = "buy"
+                        result["trade_side"] = "sell"
                         result["execution_price"] = f"{price_reverted:.8f} {in_symbol}/{out_symbol}"
                         result["inverse_price"] = f"{price:.8f} {out_symbol}/{in_symbol}"
                         result["base_quantity"] = output_quantity
                         result["quote_quantity"] = input_quantity
                     else:
-                        result["trade_side"] = "sell"
+                        result["trade_side"] = "buy"
                         result["execution_price"] = f"{price:.8f} {out_symbol}/{in_symbol}"
                         result["inverse_price"] = f"{price_reverted:.8f} {in_symbol}/{out_symbol}"
                         result["base_quantity"] = input_quantity
