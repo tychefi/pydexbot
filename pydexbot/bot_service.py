@@ -216,6 +216,12 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
         return None
 
     left_price = right_amount / left_amount
+    if target_price > 0:
+        if left_price < target_price:
+            return "right"
+        if left_price > target_price:
+            return "left"
+
     correction_ratio = min(fluctuation_ratio * CORRECTION_BAND_MULTIPLIER, Decimal("1"))
     min_price = target_price * (Decimal("1") - correction_ratio)
     max_price = target_price * (Decimal("1") + correction_ratio)
@@ -267,21 +273,36 @@ def possible_trade_sides(market_config, swap_market):
         return ("left",)
     return ("left", "right")
 
+def action_name_for_side(side):
+    if side == "right":
+        return "buy"
+    if side == "left":
+        return "sell"
+    return "trade"
+
+def build_trade_authorizations(selected_bot, trade_action):
+    if trade_action in ("buy", "sell"):
+        return {selected_bot: TRADE_PERMISSION}
+    return {
+        FEE_PAYER: TRADE_PERMISSION,
+        selected_bot: TRADE_PERMISSION
+    }
+
 def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
     swap_market = get_swap_market(trade_pair)
     bot_market = get_bot_market(trade_pair)
     if not market_config or not swap_market or not bot_market:
         selected = random.choice(bots)
         debug(f"Selected bot without market prefilter: {selected}", log_file)
-        return selected
+        return selected, "trade", None
 
     side = predict_trade_side(trade_pair, market_config, swap_market, bot_market)
     if side not in ("left", "right"):
         selected = random.choice(bots)
         debug(f"Selected bot without side prediction: {selected}", log_file)
-        return selected
+        return selected, "trade", None
 
-    candidate_sides = possible_trade_sides(market_config, swap_market)
+    candidate_sides = (side,)
     requirements = {
         candidate_side: side_required_balance(candidate_side, market_config, swap_market, bot_market)
         for candidate_side in candidate_sides
@@ -304,12 +325,13 @@ def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
 
     if eligible:
         selected = random.choice(eligible)
+        action_name = action_name_for_side(side)
         debug(
             f"Selected funded bot: {selected}, predicted_side={side}, "
-            f"candidate_sides={candidate_sides}, balances={balances}",
+            f"action={action_name}, balances={balances}",
             log_file,
         )
-        return selected
+        return selected, action_name, side
 
     readable_sides = ",".join("sell" if candidate_side == "left" else "buy" for candidate_side in candidate_sides)
     required_text = ", ".join(
@@ -321,7 +343,7 @@ def choose_funded_bot(trade_pair, bots, market_config, log_file=None):
         f"required={required_text}, balances={balances}",
         log_file,
     )
-    return None
+    return None, action_name_for_side(side), side
 
 def get_market_config(trade_pair):
     """
@@ -409,7 +431,7 @@ def parse_price_from_result(trx):
         return result
     traces = trx["processed"]["action_traces"]
     for trace in traces:
-        if "act" in trace and "name" in trace["act"] and trace["act"]["name"] == "trade":
+        if "act" in trace and "name" in trace["act"] and trace["act"]["name"] in ("trade", "buy", "sell"):
             if "inline_traces" not in trace or not trace["inline_traces"]:
                 continue
             if len(trace["inline_traces"]) < 2:
@@ -484,20 +506,17 @@ def run_pair_worker(trade_pair, stop_event):
                 error(f"No bots found in group {trade_pair}", log_file)
                 sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after missing bots")
                 continue
-            selected_bot = choose_funded_bot(trade_pair, bots, market_config, log_file)
+            selected_bot, trade_action, predicted_side = choose_funded_bot(trade_pair, bots, market_config, log_file)
             if not selected_bot:
                 sleep_with_jitter(stop_event, RETRY_MIN_INTERVAL_SECONDS, RETRY_MAX_INTERVAL_SECONDS, log_file, "retry after no funded bot")
                 continue
-            debug(f"Selected bot: {selected_bot}", log_file)
+            debug(f"Selected bot: {selected_bot}, action={trade_action}, predicted_side={predicted_side}", log_file)
 
             action_data = {"bot": selected_bot, "trade_pair_name": trade_pair, "memo": memo}
-            authorizations = {
-                FEE_PAYER: TRADE_PERMISSION,
-                selected_bot: TRADE_PERMISSION
-            }
-            result = utils.push_action(TOKENX_MM_CONTRACT, "trade", action_data, authorizations)
+            authorizations = build_trade_authorizations(selected_bot, trade_action)
+            result = utils.push_action(TOKENX_MM_CONTRACT, trade_action, action_data, authorizations)
             submitted_at = current_log_time()
-            debug(f"trade result: {result}", log_file)
+            debug(f"{trade_action} result: {result}", log_file)
             trade_info = parse_price_from_result(result)
             transaction_link = format_transaction_link(result, submitted_at)
             info(f"\n========== Trade Result ({trade_pair}) ==========" , log_file)
