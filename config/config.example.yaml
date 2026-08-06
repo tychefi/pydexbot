@@ -26,3 +26,5 @@ interval_jitter_ratio: 0.35   # Adds +/- jitter to avoid fixed-frequency calls, 
 retry_min_interval_seconds: 10 # Minimum retry interval after errors, paused markets, or missing bots
 retry_max_interval_seconds: 30 # Maximum retry interval after errors, paused markets, or missing bots
 ready_jitter_seconds: 8       # Extra random delay after contract schedules table says the pair is ready
+target_side_deadband_ratio: 0.006 # Do not force buy/sell when price is within +/-0.6% of target_price
+side_segment_seconds: 900     # Neutral-zone side bias window; shorter windows avoid long mechanical ramps

@@ -51,8 +51,13 @@ RETRY_MIN_INTERVAL_SECONDS = config.get("retry_min_interval_seconds", 10)
 RETRY_MAX_INTERVAL_SECONDS = config.get("retry_max_interval_seconds", 30)
 READY_JITTER_SECONDS = config.get("ready_jitter_seconds", 8)
 VERBOSE = config.get("verbose", False)
-SIDE_SEGMENT_SECONDS = 14400
+SIDE_SEGMENT_SECONDS = int(config.get("side_segment_seconds", 900))
 CORRECTION_BAND_MULTIPLIER = Decimal("2.0")
+TARGET_SIDE_DEADBAND_RATIO = Decimal(str(config.get("target_side_deadband_ratio", "0.006")))
+TARGET_SIDE_DEADBAND_RATIOS = {
+    str(pair): Decimal(str(value))
+    for pair, value in config.get("target_side_deadband_ratios", {}).items()
+}
 LOG_TIMEZONE = config.get("log_timezone", "Asia/Shanghai")
 
 def log_message(level, msg, log_file=None):
@@ -207,6 +212,9 @@ def calc_left_inventory_bps(bot_market, left_price):
         return 5000
     return int(max(Decimal("0"), min(Decimal("10000"), left_value * Decimal("10000") / total_value)))
 
+def get_target_side_deadband_ratio(trade_pair):
+    return TARGET_SIDE_DEADBAND_RATIOS.get(trade_pair, TARGET_SIDE_DEADBAND_RATIO)
+
 def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
     target_price = Decimal(str(market_config.get("target_price") or "0"))
     fluctuation_ratio = Decimal(str(market_config.get("fluctuation_ratio") or "0"))
@@ -217,9 +225,11 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
 
     left_price = right_amount / left_amount
     if target_price > 0:
-        if left_price < target_price:
+        target_gap_ratio = abs(left_price - target_price) / target_price
+        target_deadband_ratio = get_target_side_deadband_ratio(trade_pair)
+        if target_gap_ratio > target_deadband_ratio and left_price < target_price:
             return "right"
-        if left_price > target_price:
+        if target_gap_ratio > target_deadband_ratio and left_price > target_price:
             return "left"
 
     correction_ratio = min(fluctuation_ratio * CORRECTION_BAND_MULTIPLIER, Decimal("1"))
