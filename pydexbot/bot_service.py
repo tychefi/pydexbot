@@ -220,9 +220,9 @@ def get_target_side_deadband_ratio(trade_pair):
 def opposite_side(side):
     return "right" if side == "left" else "left"
 
-def planned_candle_side(trade_pair, now_seconds=None):
+def planned_candle_state(trade_pair, now_seconds=None):
     if not CANDLE_PLAN_ENABLED or CANDLE_SECONDS <= 0:
-        return None
+        return None, None
     if now_seconds is None:
         now_seconds = int(time.time())
 
@@ -231,15 +231,26 @@ def planned_candle_side(trade_pair, now_seconds=None):
     seed = utils.name_to_number(trade_pair) & 0xffffffff
     candle_rand = mix32(seed ^ ((candle_index * 2246822519) & 0xffffffff))
     body_side = "left" if (candle_rand & 1) == 0 else "right"
-    wick_side = opposite_side(body_side)
+    counter_side = opposite_side(body_side)
 
-    first_turn = CANDLE_SECONDS * 25 // 100
-    second_turn = CANDLE_SECONDS * 55 // 100
-    if candle_elapsed < first_turn:
-        return body_side
-    if candle_elapsed < second_turn:
-        return wick_side
-    return body_side
+    open_wick_until = CANDLE_SECONDS * 20 // 100
+    body_until = CANDLE_SECONDS * 70 // 100
+    close_wick_until = CANDLE_SECONDS * 87 // 100
+    if candle_elapsed < open_wick_until:
+        return counter_side, "open_wick"
+    if candle_elapsed < body_until:
+        return body_side, "body"
+    if candle_elapsed < close_wick_until:
+        return counter_side, "close_wick"
+    return body_side, "close"
+
+def planned_candle_side(trade_pair, now_seconds=None):
+    side, _ = planned_candle_state(trade_pair, now_seconds)
+    return side
+
+def planned_candle_phase(trade_pair, now_seconds=None):
+    _, phase = planned_candle_state(trade_pair, now_seconds)
+    return phase
 
 def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
     target_price = Decimal(str(market_config.get("target_price") or "0"))
@@ -526,6 +537,9 @@ def run_pair_worker(trade_pair, stop_event):
         try:
             timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
             memo = str(random.randint(0, 2**32 - 1))
+            candle_phase = planned_candle_phase(trade_pair)
+            if candle_phase:
+                memo = f"{memo}:candle_phase={candle_phase}"
             debug(f"[{timestamp}] trade: pair={trade_pair} memo={memo}")
 
             market_config = get_market_config(trade_pair)
