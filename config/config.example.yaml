@@ -28,3 +28,5 @@ retry_max_interval_seconds: 30 # Maximum retry interval after errors, paused mar
 ready_jitter_seconds: 8       # Extra random delay after contract schedules table says the pair is ready
 target_side_deadband_ratio: 0.006 # Do not force buy/sell when price is within +/-0.6% of target_price
 side_segment_seconds: 900     # Neutral-zone side bias window; shorter windows avoid long mechanical ramps
+candle_plan_enabled: true     # In neutral zone, shape each 5m candle with body/probe/body side sequencing
+candle_seconds: 300           # Candle planning interval; 300 seconds targets 5m K-line wicks

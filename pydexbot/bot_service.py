@@ -58,6 +58,8 @@ TARGET_SIDE_DEADBAND_RATIOS = {
     str(pair): Decimal(str(value))
     for pair, value in config.get("target_side_deadband_ratios", {}).items()
 }
+CANDLE_PLAN_ENABLED = bool(config.get("candle_plan_enabled", True))
+CANDLE_SECONDS = int(config.get("candle_seconds", 300))
 LOG_TIMEZONE = config.get("log_timezone", "Asia/Shanghai")
 
 def log_message(level, msg, log_file=None):
@@ -215,6 +217,30 @@ def calc_left_inventory_bps(bot_market, left_price):
 def get_target_side_deadband_ratio(trade_pair):
     return TARGET_SIDE_DEADBAND_RATIOS.get(trade_pair, TARGET_SIDE_DEADBAND_RATIO)
 
+def opposite_side(side):
+    return "right" if side == "left" else "left"
+
+def planned_candle_side(trade_pair, now_seconds=None):
+    if not CANDLE_PLAN_ENABLED or CANDLE_SECONDS <= 0:
+        return None
+    if now_seconds is None:
+        now_seconds = int(time.time())
+
+    candle_index = now_seconds // CANDLE_SECONDS
+    candle_elapsed = now_seconds % CANDLE_SECONDS
+    seed = utils.name_to_number(trade_pair) & 0xffffffff
+    candle_rand = mix32(seed ^ ((candle_index * 2246822519) & 0xffffffff))
+    body_side = "left" if (candle_rand & 1) == 0 else "right"
+    wick_side = opposite_side(body_side)
+
+    first_turn = CANDLE_SECONDS * 25 // 100
+    second_turn = CANDLE_SECONDS * 55 // 100
+    if candle_elapsed < first_turn:
+        return body_side
+    if candle_elapsed < second_turn:
+        return wick_side
+    return body_side
+
 def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
     target_price = Decimal(str(market_config.get("target_price") or "0"))
     fluctuation_ratio = Decimal(str(market_config.get("fluctuation_ratio") or "0"))
@@ -240,10 +266,12 @@ def predict_trade_side(trade_pair, market_config, swap_market, bot_market):
     elif left_price > max_price:
         side = "left"
     else:
-        segment = int(time.time()) // SIDE_SEGMENT_SECONDS
-        seed = utils.name_to_number(trade_pair) & 0xffffffff
-        segment_rand = mix32(seed ^ ((segment * 2246822519) & 0xffffffff))
-        side = "left" if (segment_rand & 1) == 0 else "right"
+        side = planned_candle_side(trade_pair)
+        if side not in ("left", "right"):
+            segment = int(time.time()) // SIDE_SEGMENT_SECONDS
+            seed = utils.name_to_number(trade_pair) & 0xffffffff
+            segment_rand = mix32(seed ^ ((segment * 2246822519) & 0xffffffff))
+            side = "left" if (segment_rand & 1) == 0 else "right"
 
     return side
 
